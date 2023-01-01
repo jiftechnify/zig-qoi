@@ -19,8 +19,8 @@ pub fn main() !void {
     
     var png_stream = std.io.StreamSource{ .file = png_file };
     
-    const img = try PNG.readImage(allocator, &png_stream);
-    std.debug.print("{}", img);
+    var img = try PNG.readImage(allocator, &png_stream);
+    defer img.deinit();
 }
 
 test "simple test" {
