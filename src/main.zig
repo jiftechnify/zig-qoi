@@ -1,19 +1,26 @@
 const std = @import("std");
+const PNG = @import("zigimg").png.PNG;
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer {
+        const leaked = gpa.deinit();
+        if (leaked) {
+            @panic("GPA: memory leak");
+        }
+    }
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // don't forget to flush!
+    const png_file = try std.fs.cwd().openFile("blackleaf.png", .{});
+    defer png_file.close();
+    
+    var png_stream = std.io.StreamSource{ .file = png_file };
+    
+    const img = try PNG.readImage(allocator, &png_stream);
+    std.debug.print("{}", img);
 }
 
 test "simple test" {
