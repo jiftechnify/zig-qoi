@@ -21,6 +21,7 @@ pub fn main() !void {
     
     var img = try PNG.readImage(allocator, &png_stream);
     defer img.deinit();
+    std.debug.print("{any}", .{img});
 }
 
 test "simple test" {
