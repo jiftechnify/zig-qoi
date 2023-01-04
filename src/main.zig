@@ -1,10 +1,8 @@
 const std = @import("std");
-const PNG = @import("zigimg").png.PNG;
+const Image = @import("zigimg").Image;
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
+    // initialize an allocator for Image buffer
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer {
@@ -14,19 +12,18 @@ pub fn main() !void {
         }
     }
 
-    const png_file = try std.fs.cwd().openFile("blackleaf.png", .{});
-    defer png_file.close();
-    
-    var png_stream = std.io.StreamSource{ .file = png_file };
-    
-    var img = try PNG.readImage(allocator, &png_stream);
+    // read the image file
+    var img = try Image.fromFilePath(allocator, "blackleaf.png");
     defer img.deinit();
-    std.debug.print("{any}", .{img});
+    
+    // get the iterator which iterates over pixels of the image
+    // then use it to count number of pixels
+    var pxIter = img.iterator();
+    var pxCnt: u64 = 0;
+    while (pxIter.next()) |_| {
+        pxCnt += 1;
+    }
+
+    std.debug.print("#pixels: {}\n", .{pxCnt});
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
