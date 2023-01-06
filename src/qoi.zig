@@ -5,10 +5,10 @@ const mem_eql = std.mem.eql;
 const meta_eql = std.meta.eql;
 
 // magic bytes "qoif"
-const qoi_header_magic: [4]u8 = .{'q', 'o', 'i', 'f'};
+const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };
 
 const QoiColorspace = enum(u8) {
-    sRGB = 0,   // sRGB with linear alpha
+    sRGB = 0, // sRGB with linear alpha
     linear = 1, // all channels linear
 
     const Self = @This();
@@ -28,8 +28,8 @@ const QoiColorspace = enum(u8) {
 };
 
 const QoiHeader = struct {
-    width: u32,   // image width in pixels
-    height: u32,  // image height in pixels
+    width: u32, // image width in pixels
+    height: u32, // image height in pixels
     channels: u8, // number of color channels; 3 = RGB, 4 = RGBA
     colorspace: QoiColorspace,
 
@@ -60,12 +60,7 @@ const QoiHeader = struct {
 };
 
 test "writeTo/Readfrom" {
-    const originalHeader = QoiHeader{
-        .width = 800,
-        .height = 600,
-        .channels = 3,
-        .colorspace = QoiColorspace.linear
-    };
+    const originalHeader = QoiHeader{ .width = 800, .height = 600, .channels = 3, .colorspace = QoiColorspace.linear };
 
     var buf: [14]u8 = undefined;
     var stream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
