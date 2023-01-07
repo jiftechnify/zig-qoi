@@ -1,5 +1,22 @@
 const std = @import("std");
+
 const expect = std.testing.expect;
+
+// workaround for an issue of `expectEqual`.
+//
+// When a comptime-known value is passed as `expected`, the compiler complains that 
+// `actual` value must be comptime-known, although `actual` value is generally runtime-known.
+// So we are forced to cast `expected` to a type of runtime-known value, which is cumbersome.
+//
+// To resolve this issue, we can define wrapper of `expectEqual` which casts `expected` to the type of `actual` automatically.
+//
+// cf. https://github.com/ziglang/zig/issues/4437#issuecomment-683309291
+fn expectEqual(expected: anytype, actual: anytype) !void {
+    try std.testing.expectEqual(@as(@TypeOf(actual), expected), actual);
+}
+
+const expectEqualSlices = std.testing.expectEqualSlices;
+
 const assert = std.debug.assert;
 const mem_eql = std.mem.eql;
 const meta_eql = std.meta.eql;
@@ -71,7 +88,7 @@ test "header info writeTo/Readfrom" {
     try stream.seekTo(0);
     const readHeader = try QoiHeaderInfo.readFrom(&stream.reader());
 
-    try expect(meta_eql(originalHeader, readHeader));
+    try expectEqual(originalHeader, readHeader);
 }
 
 // QOI chunk tags
@@ -95,7 +112,13 @@ fn indexChunk(idx: u8) []const u8 {
     b0 |= tag_index << 6;
     b0 |= idx;
 
-    return &[_]u8{b0};
+    return &.{b0};
+}
+
+test "indexChunk" {
+    try expectEqualSlices(u8, &.{0b00_000000}, indexChunk(0));
+    try expectEqualSlices(u8, &.{0b00_111111}, indexChunk(63));
+    try expectEqualSlices(u8, &.{0b00_101010}, indexChunk(42));
 }
 
 // run-length has 6-bit width in run chunk, but 63 and 64 are illegal as they are occupied by the rgb/rgba tags.
@@ -111,7 +134,13 @@ fn runChunk(run: u8) []const u8 {
     b0 |= tag_run << 6;
     b0 |= run - 1; // run-length is stored with a bias of -1
 
-    return &[_]u8{b0};
+    return &.{b0};
+}
+
+test "runChunk" {
+    try expectEqualSlices(u8, &.{0b11_000000}, runChunk(1));
+    try expectEqualSlices(u8, &.{0b11_111101}, runChunk(62));
+    try expectEqualSlices(u8, &.{0b11_101001}, runChunk(42));
 }
 
 /// Pixel color in RGBA8 format.
@@ -155,6 +184,43 @@ const Rgba = struct {
     }
 };
 
+test "Rgba.rgbDiff" {
+    const tt = [_]struct { c1: Rgba, c2: Rgba, exp: RgbDiff }{
+        .{ .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = 1, .dg = 2, .db = 3 } },
+        .{ .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .exp = .{ .dr = -1, .dg = -2, .db = -3 } },
+        .{ .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .exp = .{ .dr = 0, .dg = 0, .db = 0 } },
+        .{ .c1 = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = -1, .dg = -1, .db = -1 } },
+        .{ .c1 = .{ .r = 128, .g = 128, .b = 128, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = -128, .dg = -128, .db = -128 } },
+        .{ .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .c2 = .{ .r = 128, .g = 128, .b = 128, .a = 255 }, .exp = .{ .dr = -128, .dg = -128, .db = -128 } },
+    };
+
+    for (tt) |t| {
+        try expectEqual(t.exp, Rgba.rgbDiff(t.c1, t.c2));
+    }
+}
+
+test "Rgba.toRgbChunk" {
+    const tt = [_]struct { px: Rgba, exp: []const u8 }{
+        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 }, .exp = &.{ 0b11111110, 10, 20, 30 } },
+        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 }, .exp = &.{ 0b11111110, 10, 20, 30 } },
+    };
+
+    for (tt) |t| {
+        try expectEqualSlices(u8, t.exp, t.px.toRgbChunk());
+    }
+}
+
+test "Rgba.toRgbaChunk" {
+    const tt = [_]struct { px: Rgba, exp: []const u8 }{
+        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 }, .exp = &.{ 0b11111111, 10, 20, 30, 255 } },
+        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 }, .exp = &.{ 0b11111111, 10, 20, 30, 0 } },
+    };
+
+    for (tt) |t| {
+        try expectEqualSlices(u8, t.exp, t.px.toRgbaChunk());
+    }
+}
+
 /// Difference of pixel colors (ignoring alpha channel).
 const RgbDiff = struct {
     dr: i8,
@@ -188,7 +254,7 @@ const RgbDiff = struct {
             b0 |= addBias(2, self.dg) << 2;
             b0 |= addBias(2, self.db);
 
-            return &[_]u8{b0};
+            return &.{b0};
         }
         if (self.canUseLumaChunk()) {
             // QOI_OP_LUMAencodes image data into QOI format and
@@ -204,18 +270,48 @@ const RgbDiff = struct {
             b1 |= addBias(4, self.dr -% self.dg) << 4; // diffs of diffs are stored with a bias of 8
             b1 |= addBias(4, self.db -% self.dg);
 
-            return &[_]u8{ b0, b1 };
+            return &.{ b0, b1 };
         }
 
         return null;
     }
 };
 
+test "RgbDiff.asQoiChunk" {
+    const tt_non_null = [_]struct { diff: RgbDiff, exp: []const u8 }{
+        // diff chunk
+        .{ .diff = .{ .dr = -2, .dg = -1, .db = 1 }, .exp = &.{0b01_00_01_11} },
+        .{ .diff = .{ .dr = 0, .dg = 0, .db = 1 }, .exp = &.{0b01_10_10_11} },
+
+        // luma chunk
+        .{ .diff = .{ .dg = 10, .dr = 11, .db = 9 }, .exp = &.{ 0b10_101010, 0b1001_0111 } },
+        .{ .diff = .{ .dg = 0, .dr = 7, .db = -8 }, .exp = &.{ 0b10_100000, 0b1111_0000 } },
+        .{ .diff = .{ .dg = 31, .dr = 31, .db = 31 }, .exp = &.{ 0b10_111111, 0b1000_1000 } },
+        .{ .diff = .{ .dg = -32, .dr = -32, .db = -32 }, .exp = &.{ 0b10_000000, 0b1000_1000 } },
+    };
+    for (tt_non_null) |t| {
+        try expectEqualSlices(u8, t.exp, t.diff.asQoiChunk().?);
+    }
+
+    const tt_null = [_]RgbDiff{
+        .{ .dg = 64, .dr = 1, .db = -1 },
+        .{ .dg = 32, .dr = 32, .db = 32 },
+        .{ .dg = -33, .dr = -33, .db = -33 },
+        .{ .dg = 0, .dr = 8, .db = 0 },
+        .{ .dg = 0, .dr = -9, .db = 0 },
+        .{ .dg = 0, .dr = 0, .db = 8 },
+        .{ .dg = 0, .dr = 0, .db = -9 },
+    };
+    for (tt_null) |diff| {
+        try expect(diff.asQoiChunk() == null);
+    }
+}
+
 const SeenColorsTable = struct {
     array: [64]Rgba = [_]Rgba{.{ .r = 0, .g = 0, .b = 0, .a = 0 }} ** 64,
 
     fn pixelIndex(p: Rgba) u8 {
-        return (p.r * 3 + p.g * 5 + p.b * 7 + p.a * 11) % 64;
+        return ((p.r *% 3) +% (p.g *% 5) +% (p.b *% 7) +% (p.a *% 11)) % 64;
     }
 
     /// If given pixel color is in this table, return the index of it.
@@ -232,6 +328,25 @@ const SeenColorsTable = struct {
         return null;
     }
 };
+
+test "SeenColorsTable.matchPut" {
+    var seen_colors = SeenColorsTable{};
+
+    // put zero color value
+    try expectEqual(0, seen_colors.matchPut(.{ .r = 0, .g = 0, .b = 0, .a = 0 }).?);
+
+    // put unseen color
+    const red = Rgba{ .r = 255, .g = 0, .b = 0, .a = 255 }; // index: 50
+    try expect(seen_colors.matchPut(red) == null);
+    // put same color again
+    try expectEqual(50, seen_colors.matchPut(red).?);
+
+    // put a color which index collides against the seen color
+    const collider = Rgba{ .r = 10, .g = 2, .b = 3, .a = 255 }; // index: 50
+    try expect(seen_colors.matchPut(collider) == null);
+    // put same color again
+    try expectEqual(50, seen_colors.matchPut(collider).?);
+}
 
 /// encodes image data into QOI format.
 const QoiEncoder = struct {
@@ -334,8 +449,40 @@ fn fitsIn(comptime T: type, n: i8) bool {
     }
 }
 
+test "fitsIn" {
+    try expectEqual(false, fitsIn(i2, -3));
+    try expectEqual(true, fitsIn(i2, -2));
+    try expectEqual(true, fitsIn(i2, -1));
+    try expectEqual(true, fitsIn(i2, 0));
+    try expectEqual(true, fitsIn(i2, 1));
+    try expectEqual(false, fitsIn(i2, 2));
+
+    try expectEqual(true, fitsIn(i4, 7));
+    try expectEqual(true, fitsIn(i4, -8));
+    try expectEqual(false, fitsIn(i4, 8));
+
+    try expectEqual(true, fitsIn(i6, 31));
+    try expectEqual(true, fitsIn(i6, -32));
+    try expectEqual(false, fitsIn(i6, 32));
+}
+
 /// Convert `n` to 8-bit unsigned int, with adding `2^(bits-1)` as "bias".
 fn addBias(comptime bits: u4, n: i8) u8 {
     const bias = 1 << (bits - 1);
     return @bitCast(u8, n +% bias);
+}
+
+test "addBias" {
+    try expectEqual(0, addBias(2, -2));
+    try expectEqual(1, addBias(2, -1));
+    try expectEqual(2, addBias(2, 0));
+    try expectEqual(3, addBias(2, 1));
+
+    try expectEqual(0, addBias(4, -8));
+    try expectEqual(8, addBias(4, 0));
+    try expectEqual(15, addBias(4, 7));
+    
+    try expectEqual(0, addBias(6, -32));
+    try expectEqual(32, addBias(6, 0));
+    try expectEqual(63, addBias(6, 31));
 }
