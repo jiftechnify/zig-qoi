@@ -92,12 +92,14 @@ test "header info writeTo/Readfrom" {
 }
 
 // QOI chunk tags
+// 8-bit tags
 const tag_rgb = 0b11111110;
 const tag_rgba = 0b11111111;
-const tag_index = 0b00;
-const tag_diff = 0b01;
-const tag_luma = 0b10;
-const tag_run = 0b11;
+// 2-bit tags
+const tag_index = 0b00_000000;
+const tag_diff = 0b01_000000;
+const tag_luma = 0b10_000000;
+const tag_run = 0b11_000000;
 
 // end marker
 const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
@@ -108,11 +110,7 @@ const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 fn indexChunk(idx: u8) []const u8 {
     assert(0 <= idx and idx <= 63);
 
-    var b0: u8 = 0;
-    b0 |= tag_index << 6;
-    b0 |= idx;
-
-    return &.{b0};
+    return &.{tag_index | idx};
 }
 
 test "indexChunk" {
@@ -126,15 +124,11 @@ const max_run_length = 62;
 
 /// QOI_OP_RUN
 /// b0[7:6] ... tag `0b11`
-/// b0[5:0] ... run-length (1..62)
+/// b0[5:0] ... run-length (1..62) with a bias of -1
 fn runChunk(run: u8) []const u8 {
     assert(1 <= run and run <= max_run_length);
 
-    var b0: u8 = 0;
-    b0 |= tag_run << 6;
-    b0 |= run - 1; // run-length is stored with a bias of -1
-
-    return &.{b0};
+    return &.{tag_run | (run - 1)};
 }
 
 test "runChunk" {
@@ -245,32 +239,21 @@ const RgbDiff = struct {
         if (self.canUseDiffChunk()) {
             // QOI_OP_DIFF
             // b0[7:6] ... tag 0b01
-            // b0[5:4] ... diff of red (-2..1)
-            // b0[3:2] ... diff of blue (-2..1)
-            // b0[1:0] ... diff of green (-2..1)
-            var b0: u8 = 0;
-            b0 |= tag_diff << 6;
-            b0 |= addBias(self.dr, 2) << 4; // diffs are stored with a bias of 2
-            b0 |= addBias(self.dg, 2) << 2;
-            b0 |= addBias(self.db, 2);
-
-            return &.{b0};
+            // b0[5:4] ... diff of red (-2..1) with a bias of 2
+            // b0[3:2] ... diff of blue (-2..1) with a bias of 2
+            // b0[1:0] ... diff of green (-2..1) with a bias of 2
+            return &.{tag_diff | addBias(self.dr, 2) << 4 | addBias(self.dg, 2) << 2 | addBias(self.db, 2)};
         }
         if (self.canUseLumaChunk()) {
-            // QOI_OP_LUMAencodes image data into QOI format and
+            // QOI_OP_LUMA
             // b0[7:6] ... tag 0b10
-            // b0[5:0] ... diff of green (-32..31)
-            // b1[7:4] ... diff of red minus diff of green (-8..7)
-            // b1[3:0] ... diff of blue minus diff of green (-8..7)
-            var b0: u8 = 0;
-            b0 |= tag_luma << 6;
-            b0 |= addBias(self.dg, 32); // diff of green is stored with a bias of 32
-
-            var b1: u8 = 0;
-            b1 |= addBias(self.dr -% self.dg, 8) << 4; // diffs of diffs are stored with a bias of 8
-            b1 |= addBias(self.db -% self.dg, 8);
-
-            return &.{ b0, b1 };
+            // b0[5:0] ... diff of green (-32..31) with a bias of 32
+            // b1[7:4] ... diff of red minus diff of green (-8..7) with a bias of 8
+            // b1[3:0] ... diff of blue minus diff of green (-8..7) with a bias of 8
+            return &.{
+                tag_luma | addBias(self.dg, 32),
+                addBias(self.dr -% self.dg, 8) << 4 | addBias(self.db -% self.dg, 8),
+            };
         }
 
         return null;
