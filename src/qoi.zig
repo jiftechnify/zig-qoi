@@ -53,10 +53,10 @@ const QoiHeaderInfo = struct {
 
     const Self = @This();
 
-    /// number of bytes when this header info is written as binary.
+    /// Number of bytes when this header info is written as binary.
     const len_in_bytes = 14;
 
-    /// serialize this header info and write to the specified `writer`.
+    /// Serialize this header info and write to the specified `writer`.
     pub fn writeTo(self: Self, writer: anytype) !void {
         _ = try writer.write(&qoi_header_magic);
         try writer.writeIntBig(u32, self.width);
@@ -65,7 +65,7 @@ const QoiHeaderInfo = struct {
         try self.colorspace.writeTo(writer);
     }
 
-    /// read from the `reader` and deserialize into header info.
+    /// Read from the `reader` and deserialize into header info.
     pub fn readFrom(reader: anytype) !Self {
         // check if the first 4-bytes match the magic bytes
         const magic = try reader.readBytesNoEof(4);
@@ -147,12 +147,12 @@ const Rgba = struct {
     b: u8,
     a: u8,
 
-    /// returns whether two colors are equal.
+    /// Checks if two colors are equal.
     fn eql(self: Rgba, other: Rgba) bool {
         return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a;
     }
 
-    /// calculates difference of pixel colors (`c1 - c2`).
+    /// Calculates difference of pixel colors (`c1 - c2`). Ignores alpha channel.
     fn rgbDiff(c1: Rgba, c2: Rgba) RgbDiff {
         return .{
             .dr = @bitCast(i8, c1.r -% c2.r),
@@ -224,20 +224,20 @@ const RgbDiff = struct {
     dg: i8,
     db: i8,
 
-    // checks if this diff can be represented as diff chunk
+    // Checks if this diff can be represented as diff chunk
     // (all channels' diffs fit in `i2` (-2..1)).
     fn canUseDiffChunk(self: RgbDiff) bool {
         return fitsIn(i2, self.dr) and fitsIn(i2, self.dg) and fitsIn(i2, self.db);
     }
 
-    // checks if this diff can be represented as luma chunk
+    // Checks if this diff can be represented as luma chunk
     // (diff of Green fits in `i6`, plus both diff of "diff of Red and diff of Green" and diff of "diff of Blue and diff of Green" fit in 'i4').
     fn canUseLumaChunk(self: RgbDiff) bool {
         return fitsIn(i6, self.dg) and fitsIn(i4, self.dr -% self.dg) and fitsIn(i4, self.db -% self.dg);
     }
 
-    /// converts this diff to an appropriate QOI chunk if possible.
-    /// result will be one of a diff chunk or an luma chunk, or `null` if this diff can be converted to neither of them.
+    /// Converts this diff to an appropriate QOI chunk if possible.
+    /// Result will be one of a diff chunk or an luma chunk, or `null` if this diff can be converted to neither of them.
     fn asQoiChunk(self: RgbDiff) ?[]const u8 {
         if (self.canUseDiffChunk()) {
             // QOI_OP_DIFF
@@ -334,16 +334,16 @@ test "SeenColorsTable.matchPut" {
     try expectEqual(50, seen_colors.matchPut(collider).?);
 }
 
-/// encodes image data into QOI format.
+/// Encodes image data into QOI format.
 const QoiEncoder = struct {
     px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     seen_colors: SeenColorsTable = .{},
     run: u8 = 0,
 
-    /// encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to `writer`.
+    /// Encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to the `writer`.
     fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
         try header_info.writeTo(writer);
-        
+
         var written: usize = QoiHeaderInfo.len_in_bytes;
 
         for (pixels) |px| {
@@ -354,7 +354,7 @@ const QoiEncoder = struct {
         return written;
     }
 
-    /// encodes single pixel then return number of bytes written to `writer`.
+    /// Encodes single pixel then return number of bytes written to the `writer`.
     fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !usize {
         var written: usize = 0;
 
@@ -395,8 +395,8 @@ const QoiEncoder = struct {
         return written;
     }
 
-    /// writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
-    /// must be called after iteration of pixels have finished.
+    /// Writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
+    /// Must be called after iteration over pixels have finished.
     fn finish(self: *QoiEncoder, writer: anytype) !usize {
         var written: usize = 0;
 
@@ -435,7 +435,7 @@ test "encode" {
     try expectEqual(22, written);
 }
 
-/// checks if given `i8` value fits in the range of type `T`.
+/// Checks if given `i8` value fits in the range of type `T`.
 ///
 /// `T` must be a signed integer type.
 fn fitsIn(comptime T: type, n: i8) bool {
@@ -467,7 +467,7 @@ test "fitsIn" {
     try expectEqual(false, fitsIn(i6, 32));
 }
 
-/// add `bias` to `n` and convert it to `u8` by bit-preserving cast.
+/// Add `bias` to `n` and convert it to `u8` by bit-preserving cast.
 fn addBias(n: i8, bias: i8) u8 {
     return @bitCast(u8, n +% bias);
 }
