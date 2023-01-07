@@ -53,6 +53,9 @@ const QoiHeaderInfo = struct {
 
     const Self = @This();
 
+    /// number of bytes when this header info is written as binary.
+    const len_in_bytes = 14;
+
     /// serialize this header info and write to the specified `writer`.
     pub fn writeTo(self: Self, writer: anytype) !void {
         _ = try writer.write(&qoi_header_magic);
@@ -337,29 +340,36 @@ const QoiEncoder = struct {
     seen_colors: SeenColorsTable = .{},
     run: u8 = 0,
 
-    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
+    /// encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to `writer`.
+    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
         try header_info.writeTo(writer);
+        
+        var written: usize = QoiHeaderInfo.len_in_bytes;
 
         for (pixels) |px| {
-            try self.encodePixel(px, writer);
+            written += try self.encodePixel(px, writer);
         }
-        try self.finish(writer);
+        written += try self.finish(writer);
+
+        return written;
     }
 
-    /// encodes single pixel.
-    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !void {
+    /// encodes single pixel then return number of bytes written to `writer`.
+    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !usize {
+        var written: usize = 0;
+
         if (px.eql(self.px_prev)) {
             self.run += 1;
             if (self.run == max_run_length) {
-                _ = try writer.write(runChunk(max_run_length));
+                written += try writer.write(runChunk(max_run_length));
                 self.run = 0;
             }
-            return;
+            return written;
         }
 
         // different from prev -> write chunk for previous run
         if (self.run > 0) {
-            _ = try writer.write(runChunk(self.run));
+            written += try writer.write(runChunk(self.run));
             self.run = 0;
         }
 
@@ -379,26 +389,33 @@ const QoiEncoder = struct {
 
             break :blk px.toRgbaChunk();
         };
-        _ = try writer.write(chunk);
+        written += try writer.write(chunk);
 
         self.px_prev = px;
+        return written;
     }
 
-    /// writes the last run chunk (if needed) and end marker bytes.
+    /// writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
     /// must be called after iteration of pixels have finished.
-    fn finish(self: *QoiEncoder, writer: anytype) !void {
+    fn finish(self: *QoiEncoder, writer: anytype) !usize {
+        var written: usize = 0;
+
         if (self.run > 0) {
-            _ = try writer.write(runChunk(self.run));
+            written += try writer.write(runChunk(self.run));
             self.run = 0;
         }
-        _ = try writer.write(&end_marker);
+        written += try writer.write(&end_marker);
+
+        return written;
     }
 };
 
-/// writes QOI-encoded image data to given writer.
-pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
+/// Writes QOI-encoded image data to given `writer` and returns number of bytes written.
+pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
+    // TODO: return error if dimension data in header_info and length of pixel array conflict.
+
     var encoder = QoiEncoder{};
-    try encoder.encode(header_info, pixels, writer);
+    return try encoder.encode(header_info, pixels, writer);
 }
 
 test "encode" {
@@ -412,10 +429,10 @@ test "encode" {
         .colorspace = .sRGB,
     };
 
-    try encode(header_info, &[_]Rgba{}, &buf.writer());
+    const written = try encode(header_info, &[_]Rgba{}, &buf.writer());
 
     // TODO: write actual test
-    try expect(1 == 1);
+    try expectEqual(22, written);
 }
 
 /// checks if given `i8` value fits in the range of type `T`.
