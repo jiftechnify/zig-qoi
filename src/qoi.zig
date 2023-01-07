@@ -381,18 +381,19 @@ const QoiEncoder = struct {
         }
 
         const chunk = blk: {
+            // match px against seen colors table
             if (self.seen_colors.matchPut(px)) |idx| {
                 break :blk indexChunk(idx);
             }
 
-            // calculate diff and emit diff chunk or an lmua chunk if the diff is small
-            if (Rgba.rgbDiff(self.px_prev, px).asQoiChunk()) |chunk| {
-                break :blk chunk;
-            }
-
             if (self.px_prev.a == px.a) {
+                // calculate diff and emit diff chunk or an lmua chunk if the diff is small
+                if (Rgba.rgbDiff(self.px_prev, px).asQoiChunk()) |chunk| {
+                    break :blk chunk;
+                }
                 break :blk px.toRgbChunk();
             }
+
             break :blk px.toRgbaChunk();
         };
         _ = try writer.write(chunk);
