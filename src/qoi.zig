@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 // workaround for an issue of `expectEqual`.
 //
-// When a comptime-known value is passed as `expected`, the compiler complains that 
+// When a comptime-known value is passed as `expected`, the compiler complains that
 // `actual` value must be comptime-known, although `actual` value is generally runtime-known.
 // So we are forced to cast `expected` to a type of runtime-known value, which is cumbersome.
 //
@@ -250,9 +250,9 @@ const RgbDiff = struct {
             // b0[1:0] ... diff of green (-2..1)
             var b0: u8 = 0;
             b0 |= tag_diff << 6;
-            b0 |= addBias(2, self.dr) << 4; // diffs are stored with a bias of 2
-            b0 |= addBias(2, self.dg) << 2;
-            b0 |= addBias(2, self.db);
+            b0 |= addBias(self.dr, 2) << 4; // diffs are stored with a bias of 2
+            b0 |= addBias(self.dg, 2) << 2;
+            b0 |= addBias(self.db, 2);
 
             return &.{b0};
         }
@@ -264,11 +264,11 @@ const RgbDiff = struct {
             // b1[3:0] ... diff of blue minus diff of green (-8..7)
             var b0: u8 = 0;
             b0 |= tag_luma << 6;
-            b0 |= addBias(6, self.dg); // diff of green is stored with a bias of 32
+            b0 |= addBias(self.dg, 32); // diff of green is stored with a bias of 32
 
             var b1: u8 = 0;
-            b1 |= addBias(4, self.dr -% self.dg) << 4; // diffs of diffs are stored with a bias of 8
-            b1 |= addBias(4, self.db -% self.dg);
+            b1 |= addBias(self.dr -% self.dg, 8) << 4; // diffs of diffs are stored with a bias of 8
+            b1 |= addBias(self.db -% self.dg, 8);
 
             return &.{ b0, b1 };
         }
@@ -467,23 +467,22 @@ test "fitsIn" {
     try expectEqual(false, fitsIn(i6, 32));
 }
 
-/// Convert `n` to 8-bit unsigned int, with adding `2^(bits-1)` as "bias".
-fn addBias(comptime bits: u4, n: i8) u8 {
-    const bias = 1 << (bits - 1);
+/// add `bias` to `n` and convert it to `u8` by bit-preserving cast.
+fn addBias(n: i8, bias: i8) u8 {
     return @bitCast(u8, n +% bias);
 }
 
 test "addBias" {
-    try expectEqual(0, addBias(2, -2));
-    try expectEqual(1, addBias(2, -1));
-    try expectEqual(2, addBias(2, 0));
-    try expectEqual(3, addBias(2, 1));
+    try expectEqual(0, addBias(-2, 2));
+    try expectEqual(1, addBias(-1, 2));
+    try expectEqual(2, addBias(0, 2));
+    try expectEqual(3, addBias(1, 2));
 
-    try expectEqual(0, addBias(4, -8));
-    try expectEqual(8, addBias(4, 0));
-    try expectEqual(15, addBias(4, 7));
-    
-    try expectEqual(0, addBias(6, -32));
-    try expectEqual(32, addBias(6, 0));
-    try expectEqual(63, addBias(6, 31));
+    try expectEqual(0, addBias(-8, 8));
+    try expectEqual(8, addBias(0, 8));
+    try expectEqual(15, addBias(7, 8));
+
+    try expectEqual(0, addBias(-32, 32));
+    try expectEqual(32, addBias(0, 32));
+    try expectEqual(63, addBias(31, 32));
 }
