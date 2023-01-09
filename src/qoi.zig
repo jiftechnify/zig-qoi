@@ -10,6 +10,7 @@ const mem_eql = std.mem.eql;
 const expect = std.testing.expect;
 const expectEqual = utils.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
 // magic bytes "qoif"
@@ -59,7 +60,9 @@ const QoiHeaderInfo = struct {
     pub fn readFrom(reader: anytype) !Self {
         // check if the first 4-bytes match the magic bytes
         const magic = try reader.readBytesNoEof(4);
-        assert(mem_eql(u8, &magic, &qoi_header_magic));
+        if (!mem_eql(u8, &magic, &qoi_header_magic)) {
+            return error.InvalidQoiFormat;
+        }
 
         return QoiHeaderInfo{
             .width = try reader.readIntBig(u32),
@@ -70,7 +73,7 @@ const QoiHeaderInfo = struct {
     }
 };
 
-test "header info writeTo/Readfrom" {
+test "header info writeTo/readFrom" {
     const originalHeader = QoiHeaderInfo{ .width = 800, .height = 600, .channels = 3, .colorspace = QoiColorspace.linear };
 
     var buf: [14]u8 = undefined;
@@ -82,6 +85,14 @@ test "header info writeTo/Readfrom" {
     const readHeader = try QoiHeaderInfo.readFrom(&stream.reader());
 
     try expectEqual(originalHeader, readHeader);
+}
+
+test "detect invalid header magic" {
+    // PNG header magic for example
+    const invalidHeader = [_]u8{ 0x89, 0x50, 0x4e, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0 };
+    var stream = std.io.FixedBufferStream([]const u8){ .buffer = &invalidHeader, .pos = 0 };
+
+    try expectError(error.InvalidQoiFormat, QoiHeaderInfo.readFrom(&stream.reader()));
 }
 
 // QOI chunk tags
