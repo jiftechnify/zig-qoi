@@ -13,6 +13,109 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
+/// Writes QOI-encoded image data to given `writer` and returns number of bytes written.
+pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
+    // TODO: return error if dimension data in header_info and length of pixel array conflict.
+
+    var encoder = QoiEncoder{};
+    return try encoder.encode(header_info, pixels, writer);
+}
+
+test "encode" {
+    var buf = std.ArrayList(u8).init(test_allocator);
+    defer buf.deinit();
+
+    const header_info = QoiHeaderInfo{
+        .width = 800,
+        .height = 600,
+        .channels = 4,
+        .colorspace = .sRGB,
+    };
+
+    const written = try encode(header_info, &[_]Rgba{}, &buf.writer());
+
+    // TODO: write actual test
+    try expectEqual(22, written);
+}
+
+
+/// Encodes image data into QOI format.
+const QoiEncoder = struct {
+    px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    seen_colors: SeenColorsTable = .{},
+    run: u8 = 0,
+
+    /// Encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to the `writer`.
+    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
+        try header_info.writeTo(writer);
+
+        var written: usize = QoiHeaderInfo.len_in_bytes;
+
+        for (pixels) |px| {
+            written += try self.encodePixel(px, writer);
+        }
+        written += try self.finish(writer);
+
+        return written;
+    }
+
+    /// Encodes single pixel then return number of bytes written to the `writer`.
+    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !usize {
+        var written: usize = 0;
+
+        if (px.eql(self.px_prev)) {
+            self.run += 1;
+            if (self.run == max_run_length) {
+                written += try writer.write(runChunk(max_run_length));
+                self.run = 0;
+            }
+            return written;
+        }
+
+        // different from prev -> write chunk for previous run
+        if (self.run > 0) {
+            written += try writer.write(runChunk(self.run));
+            self.run = 0;
+        }
+
+        const chunk = blk: {
+            // match px against seen colors table
+            if (self.seen_colors.matchPut(px)) |idx| {
+                break :blk indexChunk(idx);
+            }
+
+            if (self.px_prev.a == px.a) {
+                // calculate diff and emit diff chunk or an lmua chunk if the diff is small
+                if (Rgba.rgbDiff(self.px_prev, px).asQoiChunk()) |chunk| {
+                    break :blk chunk;
+                }
+                break :blk px.toRgbChunk();
+            }
+
+            break :blk px.toRgbaChunk();
+        };
+        written += try writer.write(chunk);
+
+        self.px_prev = px;
+        return written;
+    }
+
+    /// Writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
+    /// Must be called after iteration over pixels have finished.
+    fn finish(self: *QoiEncoder, writer: anytype) !usize {
+        var written: usize = 0;
+
+        if (self.run > 0) {
+            written += try writer.write(runChunk(self.run));
+            self.run = 0;
+        }
+        written += try writer.write(&end_marker);
+
+        return written;
+    }
+};
+
+
 // magic bytes "qoif"
 const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };
 
@@ -184,12 +287,36 @@ const Rgba = struct {
 
 test "Rgba.rgbDiff" {
     const tt = [_]struct { c1: Rgba, c2: Rgba, exp: RgbDiff }{
-        .{ .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = 1, .dg = 2, .db = 3 } },
-        .{ .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .exp = .{ .dr = -1, .dg = -2, .db = -3 } },
-        .{ .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .exp = .{ .dr = 0, .dg = 0, .db = 0 } },
-        .{ .c1 = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = -1, .dg = -1, .db = -1 } },
-        .{ .c1 = .{ .r = 128, .g = 128, .b = 128, .a = 255 }, .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .exp = .{ .dr = -128, .dg = -128, .db = -128 } },
-        .{ .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 }, .c2 = .{ .r = 128, .g = 128, .b = 128, .a = 255 }, .exp = .{ .dr = -128, .dg = -128, .db = -128 } },
+        .{
+            .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+            .exp = .{ .dr = 1, .dg = 2, .db = 3 },
+        },
+        .{
+            .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+            .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+            .exp = .{ .dr = -1, .dg = -2, .db = -3 },
+        },
+        .{
+            .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+            .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+            .exp = .{ .dr = 0, .dg = 0, .db = 0 },
+        },
+        .{
+            .c1 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+            .exp = .{ .dr = -1, .dg = -1, .db = -1 },
+        },
+        .{
+            .c1 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
+            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+            .exp = .{ .dr = -128, .dg = -128, .db = -128 },
+        },
+        .{
+            .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+            .c2 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
+            .exp = .{ .dr = -128, .dg = -128, .db = -128 },
+        },
     };
 
     for (tt) |t| {
@@ -199,8 +326,14 @@ test "Rgba.rgbDiff" {
 
 test "Rgba.toRgbChunk" {
     const tt = [_]struct { px: Rgba, exp: []const u8 }{
-        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 }, .exp = &.{ 0b11111110, 10, 20, 30 } },
-        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 }, .exp = &.{ 0b11111110, 10, 20, 30 } },
+        .{
+            .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
+            .exp = &.{ 0b11111110, 10, 20, 30 },
+        },
+        .{
+            .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
+            .exp = &.{ 0b11111110, 10, 20, 30 },
+        },
     };
 
     for (tt) |t| {
@@ -210,8 +343,14 @@ test "Rgba.toRgbChunk" {
 
 test "Rgba.toRgbaChunk" {
     const tt = [_]struct { px: Rgba, exp: []const u8 }{
-        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 }, .exp = &.{ 0b11111111, 10, 20, 30, 255 } },
-        .{ .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 }, .exp = &.{ 0b11111111, 10, 20, 30, 0 } },
+        .{
+            .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
+            .exp = &.{ 0b11111111, 10, 20, 30, 255 },
+        },
+        .{
+            .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
+            .exp = &.{ 0b11111111, 10, 20, 30, 0 },
+        },
     };
 
     for (tt) |t| {
@@ -267,14 +406,32 @@ const RgbDiff = struct {
 test "RgbDiff.asQoiChunk" {
     const tt_non_null = [_]struct { diff: RgbDiff, exp: []const u8 }{
         // diff chunk
-        .{ .diff = .{ .dr = -2, .dg = -1, .db = 1 }, .exp = &.{0b01_00_01_11} },
-        .{ .diff = .{ .dr = 0, .dg = 0, .db = 1 }, .exp = &.{0b01_10_10_11} },
+        .{
+            .diff = .{ .dr = -2, .dg = -1, .db = 1 },
+            .exp = &.{0b01_00_01_11},
+        },
+        .{
+            .diff = .{ .dr = 0, .dg = 0, .db = 1 },
+            .exp = &.{0b01_10_10_11},
+        },
 
         // luma chunk
-        .{ .diff = .{ .dg = 10, .dr = 11, .db = 9 }, .exp = &.{ 0b10_101010, 0b1001_0111 } },
-        .{ .diff = .{ .dg = 0, .dr = 7, .db = -8 }, .exp = &.{ 0b10_100000, 0b1111_0000 } },
-        .{ .diff = .{ .dg = 31, .dr = 31, .db = 31 }, .exp = &.{ 0b10_111111, 0b1000_1000 } },
-        .{ .diff = .{ .dg = -32, .dr = -32, .db = -32 }, .exp = &.{ 0b10_000000, 0b1000_1000 } },
+        .{
+            .diff = .{ .dg = 10, .dr = 11, .db = 9 },
+            .exp = &.{ 0b10_101010, 0b1001_0111 },
+        },
+        .{
+            .diff = .{ .dg = 0, .dr = 7, .db = -8 },
+            .exp = &.{ 0b10_100000, 0b1111_0000 },
+        },
+        .{
+            .diff = .{ .dg = 31, .dr = 31, .db = 31 },
+            .exp = &.{ 0b10_111111, 0b1000_1000 },
+        },
+        .{
+            .diff = .{ .dg = -32, .dr = -32, .db = -32 },
+            .exp = &.{ 0b10_000000, 0b1000_1000 },
+        },
     };
     for (tt_non_null) |t| {
         try expectEqualSlices(u8, t.exp, t.diff.asQoiChunk().?);
@@ -335,103 +492,4 @@ test "SeenColorsTable.matchPut" {
     try expectEqual(50, seen_colors.matchPut(collider).?);
 }
 
-/// Encodes image data into QOI format.
-const QoiEncoder = struct {
-    px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-    seen_colors: SeenColorsTable = .{},
-    run: u8 = 0,
 
-    /// Encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to the `writer`.
-    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
-        try header_info.writeTo(writer);
-
-        var written: usize = QoiHeaderInfo.len_in_bytes;
-
-        for (pixels) |px| {
-            written += try self.encodePixel(px, writer);
-        }
-        written += try self.finish(writer);
-
-        return written;
-    }
-
-    /// Encodes single pixel then return number of bytes written to the `writer`.
-    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !usize {
-        var written: usize = 0;
-
-        if (px.eql(self.px_prev)) {
-            self.run += 1;
-            if (self.run == max_run_length) {
-                written += try writer.write(runChunk(max_run_length));
-                self.run = 0;
-            }
-            return written;
-        }
-
-        // different from prev -> write chunk for previous run
-        if (self.run > 0) {
-            written += try writer.write(runChunk(self.run));
-            self.run = 0;
-        }
-
-        const chunk = blk: {
-            // match px against seen colors table
-            if (self.seen_colors.matchPut(px)) |idx| {
-                break :blk indexChunk(idx);
-            }
-
-            if (self.px_prev.a == px.a) {
-                // calculate diff and emit diff chunk or an lmua chunk if the diff is small
-                if (Rgba.rgbDiff(self.px_prev, px).asQoiChunk()) |chunk| {
-                    break :blk chunk;
-                }
-                break :blk px.toRgbChunk();
-            }
-
-            break :blk px.toRgbaChunk();
-        };
-        written += try writer.write(chunk);
-
-        self.px_prev = px;
-        return written;
-    }
-
-    /// Writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
-    /// Must be called after iteration over pixels have finished.
-    fn finish(self: *QoiEncoder, writer: anytype) !usize {
-        var written: usize = 0;
-
-        if (self.run > 0) {
-            written += try writer.write(runChunk(self.run));
-            self.run = 0;
-        }
-        written += try writer.write(&end_marker);
-
-        return written;
-    }
-};
-
-/// Writes QOI-encoded image data to given `writer` and returns number of bytes written.
-pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
-    // TODO: return error if dimension data in header_info and length of pixel array conflict.
-
-    var encoder = QoiEncoder{};
-    return try encoder.encode(header_info, pixels, writer);
-}
-
-test "encode" {
-    var buf = std.ArrayList(u8).init(test_allocator);
-    defer buf.deinit();
-
-    const header_info = QoiHeaderInfo{
-        .width = 800,
-        .height = 600,
-        .channels = 4,
-        .colorspace = .sRGB,
-    };
-
-    const written = try encode(header_info, &[_]Rgba{}, &buf.writer());
-
-    // TODO: write actual test
-    try expectEqual(22, written);
-}
