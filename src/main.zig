@@ -16,8 +16,8 @@ pub fn main() !void {
     var img = try Image.fromFilePath(allocator, "blackleaf.png");
     defer img.deinit();
 
-    std.debug.print("image size: {} x {}\n", .{img.width, img.height});
-    
+    std.debug.print("image size: {} x {}\n", .{ img.width, img.height });
+
     // get the iterator which iterates over pixels of the image
     // then use it to count number of pixels
     var pxIter = img.iterator();
@@ -28,4 +28,3 @@ pub fn main() !void {
 
     std.debug.print("#pixels: {}\n", .{pxCnt});
 }
-
