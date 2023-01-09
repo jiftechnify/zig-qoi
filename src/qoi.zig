@@ -86,13 +86,13 @@ const QoiEncoder = struct {
 
             if (self.px_prev.a == px.a) {
                 // calculate diff and emit diff chunk or an lmua chunk if the diff is small
-                if (Rgba.rgbDiff(self.px_prev, px).asQoiChunk()) |chunk| {
+                if (Rgba.rgbDiff(self.px_prev, px).tryIntoQoiChunk()) |chunk| {
                     break :blk chunk;
                 }
-                break :blk px.toRgbChunk();
+                break :blk px.intoRgbChunk();
             }
 
-            break :blk px.toRgbaChunk();
+            break :blk px.intoRgbaChunk();
         };
         written += try writer.write(chunk);
 
@@ -270,7 +270,7 @@ const Rgba = struct {
     /// b1 ... red
     /// b2 ... blue
     /// b3 ... green
-    fn toRgbChunk(self: Rgba) []const u8 {
+    fn intoRgbChunk(self: Rgba) []const u8 {
         return &[_]u8{ tag_rgb, self.r, self.g, self.b };
     }
 
@@ -280,7 +280,7 @@ const Rgba = struct {
     /// b2 ... blue
     /// b3 ... green
     /// b4 ... alpha
-    fn toRgbaChunk(self: Rgba) []const u8 {
+    fn intoRgbaChunk(self: Rgba) []const u8 {
         return &[_]u8{ tag_rgba, self.r, self.g, self.b, self.a };
     }
 };
@@ -324,7 +324,7 @@ test "Rgba.rgbDiff" {
     }
 }
 
-test "Rgba.toRgbChunk" {
+test "Rgba.intoRgbChunk" {
     const tt = [_]struct { px: Rgba, exp: []const u8 }{
         .{
             .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
@@ -337,11 +337,11 @@ test "Rgba.toRgbChunk" {
     };
 
     for (tt) |t| {
-        try expectEqualSlices(u8, t.exp, t.px.toRgbChunk());
+        try expectEqualSlices(u8, t.exp, t.px.intoRgbChunk());
     }
 }
 
-test "Rgba.toRgbaChunk" {
+test "Rgba.intoRgbaChunk" {
     const tt = [_]struct { px: Rgba, exp: []const u8 }{
         .{
             .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
@@ -354,7 +354,7 @@ test "Rgba.toRgbaChunk" {
     };
 
     for (tt) |t| {
-        try expectEqualSlices(u8, t.exp, t.px.toRgbaChunk());
+        try expectEqualSlices(u8, t.exp, t.px.intoRgbaChunk());
     }
 }
 
@@ -378,7 +378,7 @@ const RgbDiff = struct {
 
     /// Converts this diff to an appropriate QOI chunk if possible.
     /// Result will be one of a diff chunk or an luma chunk, or `null` if this diff can be converted to neither of them.
-    fn asQoiChunk(self: RgbDiff) ?[]const u8 {
+    fn tryIntoQoiChunk(self: RgbDiff) ?[]const u8 {
         if (self.canUseDiffChunk()) {
             // QOI_OP_DIFF
             // b0[7:6] ... tag 0b01
@@ -403,7 +403,7 @@ const RgbDiff = struct {
     }
 };
 
-test "RgbDiff.asQoiChunk" {
+test "RgbDiff.tryIntoQoiChunk" {
     const tt_non_null = [_]struct { diff: RgbDiff, exp: []const u8 }{
         // diff chunk
         .{
@@ -434,7 +434,7 @@ test "RgbDiff.asQoiChunk" {
         },
     };
     for (tt_non_null) |t| {
-        try expectEqualSlices(u8, t.exp, t.diff.asQoiChunk().?);
+        try expectEqualSlices(u8, t.exp, t.diff.tryIntoQoiChunk().?);
     }
 
     const tt_null = [_]RgbDiff{
@@ -447,7 +447,7 @@ test "RgbDiff.asQoiChunk" {
         .{ .dg = 0, .dr = 0, .db = -9 },
     };
     for (tt_null) |diff| {
-        try expect(diff.asQoiChunk() == null);
+        try expect(diff.tryIntoQoiChunk() == null);
     }
 }
 
