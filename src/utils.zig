@@ -38,20 +38,26 @@ pub fn fitsIn(comptime T: type, n: i8) bool {
 }
 
 test "fitsIn" {
-    try expectEqual(false, fitsIn(i2, -3));
-    try expectEqual(true, fitsIn(i2, -2));
-    try expectEqual(true, fitsIn(i2, -1));
-    try expectEqual(true, fitsIn(i2, 0));
-    try expectEqual(true, fitsIn(i2, 1));
-    try expectEqual(false, fitsIn(i2, 2));
+    const tt = [_]struct { T: type, n: i8, exp: bool }{
+        .{ .T = i2, .n = -3, .exp = false },
+        .{ .T = i2, .n = -2, .exp = true },
+        .{ .T = i2, .n = -1, .exp = true },
+        .{ .T = i2, .n = 0, .exp = true },
+        .{ .T = i2, .n = 1, .exp = true },
+        .{ .T = i2, .n = 2, .exp = false },
 
-    try expectEqual(true, fitsIn(i4, 7));
-    try expectEqual(true, fitsIn(i4, -8));
-    try expectEqual(false, fitsIn(i4, 8));
+        .{ .T = i4, .n = 7, .exp = true },
+        .{ .T = i4, .n = -8, .exp = true },
+        .{ .T = i4, .n = 8, .exp = false },
 
-    try expectEqual(true, fitsIn(i6, 31));
-    try expectEqual(true, fitsIn(i6, -32));
-    try expectEqual(false, fitsIn(i6, 32));
+        .{ .T = i6, .n = 31, .exp = true },
+        .{ .T = i6, .n = -32, .exp = true },
+        .{ .T = i6, .n = 32, .exp = false },
+    };
+
+    inline for (tt) |t| {
+        try expectEqual(t.exp, fitsIn(t.T, t.n));
+    }
 }
 
 /// Add `bias` to `n` and convert it to `u8` by bit-preserving cast.
@@ -60,16 +66,22 @@ pub fn addBias(n: i8, bias: i8) u8 {
 }
 
 test "addBias" {
-    try expectEqual(0, addBias(-2, 2));
-    try expectEqual(1, addBias(-1, 2));
-    try expectEqual(2, addBias(0, 2));
-    try expectEqual(3, addBias(1, 2));
+    const tt = [_]struct { n: i8, bias: i8, exp: u8 }{
+        .{ .n = -2, .bias = 2, .exp = 0 },
+        .{ .n = -1, .bias = 2, .exp = 1 },
+        .{ .n = 0, .bias = 2, .exp = 2 },
+        .{ .n = 1, .bias = 2, .exp = 3 },
 
-    try expectEqual(0, addBias(-8, 8));
-    try expectEqual(8, addBias(0, 8));
-    try expectEqual(15, addBias(7, 8));
+        .{ .n = -8, .bias = 8, .exp = 0 },
+        .{ .n = 0, .bias = 8, .exp = 8 },
+        .{ .n = 7, .bias = 8, .exp = 15 },
 
-    try expectEqual(0, addBias(-32, 32));
-    try expectEqual(32, addBias(0, 32));
-    try expectEqual(63, addBias(31, 32));
+        .{ .n = -32, .bias = 32, .exp = 0 },
+        .{ .n = 0, .bias = 32, .exp = 32 },
+        .{ .n = 31, .bias = 32, .exp = 63 },
+    };
+
+    for (tt) |t| {
+        try expectEqual(t.exp, addBias(t.n, t.bias));
+    }
 }

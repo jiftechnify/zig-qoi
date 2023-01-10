@@ -38,7 +38,6 @@ test "encode" {
     try expectEqual(22, written);
 }
 
-
 /// Encodes image data into QOI format.
 const QoiEncoder = struct {
     px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
@@ -114,7 +113,6 @@ const QoiEncoder = struct {
         return written;
     }
 };
-
 
 // magic bytes "qoif"
 const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };
@@ -491,5 +489,3 @@ test "SeenColorsTable.matchPut" {
     // put same color again
     try expectEqual(50, seen_colors.matchPut(collider).?);
 }
-
-

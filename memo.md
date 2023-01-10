@@ -33,3 +33,10 @@ stream.reader();    // convert to `io.Reader`
 
     - `reader.readIntBig(u32)` reads big-endian binary data from the `reader` as `u32` value.
     - `writer.writeIntBig(u32, n)` writes `u32` value to the `writer` as big-endian binary data.
+
+## Testing
+
+- To test functions that have `comptime` parameter (e.g. `type`) in Table Driven Testing style, use `inline for` instead of bare `for` to iterate over a test table.
+
+    - It makes the for loop unrolled, and the value in the loop variable compile-time known as an additional effect.
+    - If you use bare for loop, compiler complains with the error like: `error: values of type '[N]SomeType' must be comptime-known, but index value is runtime-known`
