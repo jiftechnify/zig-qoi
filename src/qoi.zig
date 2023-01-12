@@ -12,6 +12,8 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
+const Writer = std.io.Writer;
+
 /// Writes QOI-encoded image data to given `writer` and returns number of bytes written.
 pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
     // TODO: return error if dimension data in header_info and length of pixel array conflict.
@@ -116,7 +118,7 @@ const QoiEncoder = struct {
 // magic bytes "qoif"
 const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };
 
-const QoiColorspace = enum(u8) {
+pub const QoiColorspace = enum(u8) {
     sRGB = 0, // sRGB with linear alpha
     linear = 1, // all channels linear
 
@@ -136,7 +138,7 @@ const QoiColorspace = enum(u8) {
     }
 };
 
-const QoiHeaderInfo = struct {
+pub const QoiHeaderInfo = struct {
     width: u32, // image width in pixels
     height: u32, // image height in pixels
     channels: u8, // number of color channels; 3 = RGB, 4 = RGBA
@@ -242,7 +244,7 @@ test "runChunk" {
 }
 
 /// Pixel color in RGBA8 format.
-const Rgba = struct {
+pub const Rgba = struct {
     r: u8,
     g: u8,
     b: u8,

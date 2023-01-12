@@ -13,6 +13,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("zig-qoi", "src/main.zig");
     exe.addPackagePath("zigimg", "libs/zigimg/zigimg.zig");
+    exe.linkLibC();
+    exe.addIncludePath("libs/qoi");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
