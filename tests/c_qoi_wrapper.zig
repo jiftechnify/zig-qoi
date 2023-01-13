@@ -37,7 +37,6 @@ pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const q
     }
     defer c.free(enc_bin);
 
-
     const n_usize = @intCast(usize, n);
     try writer.writeAll(@ptrCast([*]u8, enc_bin.?)[0..n_usize]);
 

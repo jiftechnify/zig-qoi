@@ -47,22 +47,20 @@ fn testEncode(png_file: *std.fs.File) !bool {
     const alloc = arena.allocator();
 
     const png_img = try readPngImage(alloc, png_file);
-    
+
     var buf_c = std.ArrayList(u8).init(alloc);
-    _ = try c_qoi.encode(alloc,  png_img.header, png_img.pixels, buf_c.writer());
+    _ = try c_qoi.encode(alloc, png_img.header, png_img.pixels, buf_c.writer());
 
     var buf_zig = std.ArrayList(u8).init(alloc);
     _ = try qoi.encode(png_img.header, png_img.pixels, buf_zig.writer());
 
     return std.mem.eql(u8, buf_c.items, buf_zig.items);
-} 
+}
 
-
-
-fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !struct { header: qoi.QoiHeaderInfo, pixels: []qoi.Rgba }{
+fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !struct { header: qoi.QoiHeaderInfo, pixels: []qoi.Rgba } {
     var img = try Image.fromFile(alloc, png_file);
 
-    const header = qoi.QoiHeaderInfo {
+    const header = qoi.QoiHeaderInfo{
         .width = @intCast(u32, img.width),
         .height = @intCast(u32, img.height),
         .channels = 4,
@@ -81,6 +79,5 @@ fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !struct { head
         });
     }
 
-    return .{ .header = header, .pixels = try list.toOwnedSlice()};
+    return .{ .header = header, .pixels = try list.toOwnedSlice() };
 }
-
