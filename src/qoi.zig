@@ -86,7 +86,7 @@ const QoiEncoder = struct {
 
             if (self.px_prev.a == px.a) {
                 // calculate diff and emit diff chunk or an lmua chunk if the diff is small
-                if (Rgba.rgbDiff(self.px_prev, px).tryIntoQoiChunk()) |chunk| {
+                if (Rgba.rgbDiff(px, self.px_prev).tryIntoQoiChunk()) |chunk| {
                     break :blk chunk;
                 }
                 break :blk px.intoRgbChunk();
