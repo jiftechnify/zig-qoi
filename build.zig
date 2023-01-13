@@ -12,9 +12,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("zig-qoi", "src/main.zig");
-    exe.addPackagePath("zigimg", "libs/zigimg/zigimg.zig");
-    exe.linkLibC();
-    exe.addIncludePath("libs/qoi");
+    addDeps(exe);
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
@@ -28,10 +26,17 @@ pub fn build(b: *std.build.Builder) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
+    const tests = b.addTest("qoi.zig");
+    addDeps(tests);
+    tests.setBuildMode(mode);
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&exe_tests.step);
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&tests.step);
+}
+
+// adds common dependencies to given LibExeObjStep.
+fn addDeps(step: *std.build.LibExeObjStep) void {
+    step.addPackagePath("zigimg", "libs/zigimg/zigimg.zig");
+    step.linkLibC();
+    step.addIncludePath("libs/qoi");
 }
