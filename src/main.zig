@@ -16,8 +16,6 @@ pub fn main() !void {
         }
     }
 
-    // sample: QOI file read/write with C impl
-    const sample_filename = "c_qoi_write_sample.qoi";
     const sample_pixels = [_]qoi.Rgba{.{ .r = 0x2e, .g = 0xb6, .b = 0xaa, .a = 0xff }} ** (32 * 32);
     const sample_header = qoi.QoiHeaderInfo{
         .width = 32,
@@ -26,8 +24,10 @@ pub fn main() !void {
         .colorspace = qoi.QoiColorspace.sRGB,
     };
 
-    _ = try c_qoi.write(allocator, sample_filename, &sample_pixels, sample_header);
-    const out = try c_qoi.read(allocator, sample_filename, 4);
+    // sample: QOI file read/write with C impl
+    const c_sample_filename = "c_qoi_write_sample.qoi";
+    _ = try c_qoi.write(allocator, c_sample_filename, &sample_pixels, sample_header);
+    const out = try c_qoi.read(allocator, c_sample_filename, 4);
 
     defer allocator.free(out.pixels);
 
@@ -37,6 +37,15 @@ pub fn main() !void {
     while (i < sample_pixels.len) : (i += 1) {
         assert(std.meta.eql(sample_pixels[i], out.pixels[i]));
     }
+
+    // sample: QOI file write with Zig impl
+    const zig_sample_filename = "zig_qoi_write_sample.qoi";
+    const out_file = try std.fs.cwd().createFile(zig_sample_filename, .{ .truncate = true });
+    defer out_file.close();
+
+    var ss = std.io.StreamSource{ .file = out_file };
+    const n = try qoi.encode(sample_header, &sample_pixels, ss.writer());
+    std.debug.print("zig impl: {} bytes written\n", .{n});
 
     // sample: convert PNG to QOI with C impl
     // read the image file
@@ -66,7 +75,13 @@ pub fn main() !void {
         });
     }
 
-    // encode to QOI format and write to file
-    const n = try c_qoi.write(allocator, "blackleaf.qoi", png_pixels.items, h);
-    std.debug.print("{} bytes written\n", .{n});
+    // encode to QOI format and write to file by C impl
+    _ = try c_qoi.write(allocator, "c_blackleaf.qoi", png_pixels.items, h);
+
+    // encode to QOI format and write to file by Zig impl
+    const zig_bl_out_file = try std.fs.cwd().createFile("zig_blackleaf.qoi", .{ .truncate = true });
+    defer zig_bl_out_file.close();
+
+    var ss2 = std.io.StreamSource{ .file = zig_bl_out_file };
+    _ = try qoi.encode(h, png_pixels.items, ss2.writer());
 }
