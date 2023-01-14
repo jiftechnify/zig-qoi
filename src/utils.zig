@@ -23,15 +23,10 @@ const expectEqual = testing.expectEqual;
 pub fn fitsIn(comptime T: type, n: i8) bool {
     switch (@typeInfo(T)) {
         .Int => |i| {
-            switch (i.signedness) {
-                .signed => {
-                    if (i.bits > 8) {
-                        @compileError("T's number of bits should be less than or equal to 8");
-                    }
-                    return std.math.minInt(T) <= n and n <= std.math.maxInt(T);
-                },
-                .unsigned => @compileError("T should be signed integer type"),
-            }
+            return if (i.signedness == .signed and i.bits <= 8)
+                std.math.minInt(T) <= n and n <= std.math.maxInt(T)
+            else
+                @compileError("T's should be signed integer type which #bits is less than or equal to 8");
         },
         else => @compileError("T should be signed integer type"),
     }

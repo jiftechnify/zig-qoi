@@ -24,7 +24,7 @@ fn rgbasToBin(alloc: Allocator, pixels: []const qoi.Rgba) !std.ArrayList(u8) {
     return buf;
 }
 
-pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const qoi.Rgba, writer: anytype) !usize {
+pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const qoi.Rgba, writer: anytype) !void {
     const desc = headerToQoiDesc(header);
 
     const image_bin = try rgbasToBin(allocator, pixels);
@@ -39,11 +39,9 @@ pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const q
 
     const n_usize = @intCast(usize, n);
     try writer.writeAll(@ptrCast([*]u8, enc_bin.?)[0..n_usize]);
-
-    return n_usize;
 }
 
-pub fn write(allocator: Allocator, filename: []const u8, pixels: []const qoi.Rgba, header: qoi.QoiHeaderInfo) !usize {
+pub fn write(allocator: Allocator, filename: []const u8, pixels: []const qoi.Rgba, header: qoi.QoiHeaderInfo) !void {
     const desc = headerToQoiDesc(header);
 
     const image_bin = try rgbasToBin(allocator, pixels);
@@ -53,7 +51,6 @@ pub fn write(allocator: Allocator, filename: []const u8, pixels: []const qoi.Rgb
     if (n == 0) {
         return error.CQoiEncodeError;
     }
-    return @intCast(usize, n);
 }
 
 fn qoiDescToHeader(desc: c.qoi_desc) qoi.QoiHeaderInfo {

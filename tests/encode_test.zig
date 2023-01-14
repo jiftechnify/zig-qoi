@@ -15,13 +15,13 @@ test "QOI encode" {
     var iter = dir_test_images.iterate();
 
     std.debug.print("\n", .{});
-    
+
     var failed = false;
     while (try iter.next()) |e| {
         if (e.kind == .File and std.mem.eql(u8, std.fs.path.extension(e.name), ".png")) {
             std.debug.print("{s} ... ", .{e.name});
 
-            var png_file = try  dir_test_images.dir.openFile(e.name, .{});
+            var png_file = try dir_test_images.dir.openFile(e.name, .{});
             const ok = try testEncode(&png_file);
 
             if (ok) {
@@ -46,10 +46,10 @@ fn testEncode(png_file: *std.fs.File) !bool {
     const png_img = try readPngImage(alloc, png_file);
 
     var buf_c = std.ArrayList(u8).init(alloc);
-    _ = try c_qoi.encode(alloc, png_img.header, png_img.pixels, buf_c.writer());
+    try c_qoi.encode(alloc, png_img.header, png_img.pixels, buf_c.writer());
 
     var buf_zig = std.ArrayList(u8).init(alloc);
-    _ = try qoi.encode(png_img.header, png_img.pixels, buf_zig.writer());
+    try qoi.encode(png_img.header, png_img.pixels, buf_zig.writer());
 
     return std.mem.eql(u8, buf_c.items, buf_zig.items);
 }

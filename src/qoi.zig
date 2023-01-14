@@ -14,29 +14,10 @@ const test_allocator = std.testing.allocator;
 
 const Writer = std.io.Writer;
 
-/// Writes QOI-encoded image data to given `writer` and returns number of bytes written.
-pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
-    // TODO: return error if dimension data in header_info and length of pixel array conflict.
-
+/// Writes QOI-encoded image data to given `writer`.
+pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
     var encoder = QoiEncoder{};
-    return try encoder.encode(header_info, pixels, writer);
-}
-
-test "encode" {
-    var buf = std.ArrayList(u8).init(test_allocator);
-    defer buf.deinit();
-
-    const header_info = QoiHeaderInfo{
-        .width = 800,
-        .height = 600,
-        .channels = 4,
-        .colorspace = .sRGB,
-    };
-
-    const written = try encode(header_info, &[_]Rgba{}, &buf.writer());
-
-    // TODO: write actual test
-    try expectEqual(22, written);
+    try encoder.encode(header_info, pixels, writer);
 }
 
 /// Encodes image data into QOI format.
@@ -45,36 +26,30 @@ const QoiEncoder = struct {
     seen_colors: SeenColorsTable = .{},
     run: u8 = 0,
 
-    /// Encodes an image (in the form of a pixel array) as QOI format, returns number of bytes written to the `writer`.
-    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !usize {
+    /// Encodes an image (in the form of a pixel array) to writer in QOI format.
+    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
         try header_info.writeTo(writer);
 
-        var written: usize = QoiHeaderInfo.len_in_bytes;
-
         for (pixels) |px| {
-            written += try self.encodePixel(px, writer);
+            try self.encodePixel(px, writer);
         }
-        written += try self.finish(writer);
-
-        return written;
+        try self.finish(writer);
     }
 
     /// Encodes single pixel then return number of bytes written to the `writer`.
-    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !usize {
-        var written: usize = 0;
-
+    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !void {
         if (px.eql(self.px_prev)) {
             self.run += 1;
             if (self.run == max_run_length) {
-                written += try writer.write(runChunk(max_run_length));
+                try writer.writeAll(runChunk(max_run_length));
                 self.run = 0;
             }
-            return written;
+            return;
         }
 
         // different from prev -> write chunk for previous run
         if (self.run > 0) {
-            written += try writer.write(runChunk(self.run));
+            try writer.writeAll(runChunk(self.run));
             self.run = 0;
         }
 
@@ -94,24 +69,19 @@ const QoiEncoder = struct {
 
             break :blk px.intoRgbaChunk();
         };
-        written += try writer.write(chunk);
+        try writer.writeAll(chunk);
 
         self.px_prev = px;
-        return written;
     }
 
-    /// Writes the last run chunk (if needed) and end marker bytes, then returns number of bytes written to `writer`.
+    /// Writes the last run chunk (if needed) and end marker bytes.
     /// Must be called after iteration over pixels have finished.
-    fn finish(self: *QoiEncoder, writer: anytype) !usize {
-        var written: usize = 0;
-
+    fn finish(self: *QoiEncoder, writer: anytype) !void {
         if (self.run > 0) {
-            written += try writer.write(runChunk(self.run));
+            try writer.writeAll(runChunk(self.run));
             self.run = 0;
         }
-        written += try writer.write(&end_marker);
-
-        return written;
+        try writer.writeAll(&end_marker);
     }
 };
 
@@ -151,7 +121,7 @@ pub const QoiHeaderInfo = struct {
 
     /// Serialize this header info and write to the specified `writer`.
     pub fn writeTo(self: Self, writer: anytype) !void {
-        _ = try writer.write(&qoi_header_magic);
+        try writer.writeAll(&qoi_header_magic);
         try writer.writeIntBig(u32, self.width);
         try writer.writeIntBig(u32, self.height);
         try writer.writeIntBig(u8, self.channels);
