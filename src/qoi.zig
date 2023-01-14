@@ -3,6 +3,7 @@ const std = @import("std");
 const utils = @import("./utils.zig");
 const fitsIn = utils.fitsIn;
 const addBias = utils.addBias;
+const subBias = utils.subBias;
 
 const assert = std.debug.assert;
 
@@ -11,8 +12,6 @@ const expectEqual = utils.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
-
-const Writer = std.io.Writer;
 
 /// Writes QOI-encoded image data to given `writer`.
 pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
@@ -85,8 +84,125 @@ const QoiEncoder = struct {
     }
 };
 
+const QoiDecodeOutput = struct {
+    header: QoiHeaderInfo,
+    pixels: []Rgba, 
+};
+
+/// Reads QOI-encoded image data from given `reader`.
+/// Freeing `pixels` in the output is caller's responsibility.
+pub fn decode(allocator: std.mem.Allocator, reader: anytype) !QoiDecodeOutput {
+    var decorder = QoiDecoder{};
+    return try decorder.decode(allocator, reader);
+}
+
+const QoiDecoder = struct {
+    px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    seen_colors: SeenColorsTable = .{},
+
+    last_idx_0_px: ?Rgba = null,
+
+    /// Reads and decodes an QOI image from `reader`.
+    /// Freeing `pixels` in the output is caller's responsibility.
+    fn decode(self: *QoiDecoder, allocator: std.mem.Allocator, reader: anytype) !QoiDecodeOutput {
+        const header = try QoiHeaderInfo.readFrom(reader);
+
+        var list_px = std.ArrayList(Rgba).init(allocator);
+        while (true) {
+            const b = try reader.readByte();
+
+            if (self.last_idx_0_px != null) {
+                if (b == 0) {
+                    // previous byte was first byte of end marker!
+                    break;
+                }
+
+                // previous byte was QOI_OP_INDEX(0)
+                try list_px.append(self.last_idx_0_px.?);
+                self.px_prev = self.last_idx_0_px;
+                self.last_idx_0_px = null;
+            }
+
+            const px_n = blk: {
+                switch (b) {
+                    tag_rgb => {
+                        const rgb = try reader.readBytesNoEof(3);
+                        break :blk .{ .px = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = self.px_prev.a }, .n = 1 };
+                    },
+                    tag_rgba => {
+                        const rgba = try reader.readBytesNoEof(4);
+                        break :blk .{ .px = .{ .r = rgba[0], .g = rgba[1], .b = rgba[2], .a = rgba[3] }, .n = 1 };
+                    },
+                    else => {},
+                }
+                // 8-bit tags didn't match; check 2-bit tags
+                const tag2 = b & 0b11_000000;
+                switch (tag2) {
+                    tag_index => {
+                        if (b == 0) { // maybe first byte of end marker; defer appending pixel
+                            self.last_idx_0_px = self.seen_colors.get(0);
+                            break :blk .{ .px = .{}, .n = 0 };
+                        }
+                        break :blk .{ .px = self.seen_colors.get(b), .n = 1 };
+                    },
+                    tag_diff => {
+                        const diff = RgbDiff.fromDiffChunk(b);
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .n = 1 };
+                    },
+                    tag_luma => {
+                        const b1 = try reader.readByte();
+                        const diff = RgbDiff.fromLumaChunk(b, b1);
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .n = 1 };
+                    },
+                    tag_run => {
+                        const run = (b & 0b00_111111) + 1;
+                        break :blk .{ .px = self.px_prev, .n = run };
+                    },
+                    else => unreachable,
+                }
+            };
+
+            if (px_n.n > 0) {
+                try list_px.appendNTimes(px_n.px, px_n.n);
+
+                self.px_prev = px_n.px;
+                _ = self.seen_colors.matchPut(px_n.px);
+            }
+        }
+
+        // so far, 2 consecutive zero bytes detecetd; match next 6 bytes against end marker pattern
+        const end = try reader.readBytesNoEof(6);
+        if (!std.mem.eql(u8, end, &.{0, 0, 0, 0, 0, 1})) {
+            return error.InvalidQoiFormat;
+        }
+
+        // check if there is no conflict between #pixels and dimension of the image
+        if (list_px.items.len != header.width * header.height) {
+            return error.InvalidQoiFormat;
+        }
+
+        return .{
+            .header = header,
+            .pixels = list_px.toOwnedSlice(),
+        };
+    }
+};
+
 // magic bytes "qoif"
 const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };
+
+// QOI chunk tags
+// 8-bit tags
+const tag_rgb = 0b11111110;
+const tag_rgba = 0b11111111;
+// 2-bit tags
+const tag_index = 0b00_000000;
+const tag_diff = 0b01_000000;
+const tag_luma = 0b10_000000;
+const tag_run = 0b11_000000;
+
+// end marker
+const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
 pub const QoiColorspace = enum(u8) {
     sRGB = 0, // sRGB with linear alpha
@@ -143,42 +259,29 @@ pub const QoiHeaderInfo = struct {
             .colorspace = try QoiColorspace.readFrom(reader),
         };
     }
+
+    test "header info writeTo/readFrom" {
+        const original_header = QoiHeaderInfo{ .width = 800, .height = 600, .channels = 3, .colorspace = QoiColorspace.linear };
+
+        var buf: [14]u8 = undefined;
+        var stream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
+
+        try original_header.writeTo(&stream.writer());
+
+        try stream.seekTo(0);
+        const read_header = try QoiHeaderInfo.readFrom(&stream.reader());
+
+        try expectEqual(original_header, read_header);
+    }
+
+    test "detect invalid header magic" {
+        // PNG header magic for example
+        const invalid_header = [_]u8{ 0x89, 0x50, 0x4e, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0 };
+        var stream = std.io.FixedBufferStream([]const u8){ .buffer = &invalid_header, .pos = 0 };
+
+        try expectError(error.InvalidQoiFormat, QoiHeaderInfo.readFrom(&stream.reader()));
+    }
 };
-
-test "header info writeTo/readFrom" {
-    const original_header = QoiHeaderInfo{ .width = 800, .height = 600, .channels = 3, .colorspace = QoiColorspace.linear };
-
-    var buf: [14]u8 = undefined;
-    var stream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
-
-    try original_header.writeTo(&stream.writer());
-
-    try stream.seekTo(0);
-    const read_header = try QoiHeaderInfo.readFrom(&stream.reader());
-
-    try expectEqual(original_header, read_header);
-}
-
-test "detect invalid header magic" {
-    // PNG header magic for example
-    const invalid_header = [_]u8{ 0x89, 0x50, 0x4e, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0 };
-    var stream = std.io.FixedBufferStream([]const u8){ .buffer = &invalid_header, .pos = 0 };
-
-    try expectError(error.InvalidQoiFormat, QoiHeaderInfo.readFrom(&stream.reader()));
-}
-
-// QOI chunk tags
-// 8-bit tags
-const tag_rgb = 0b11111110;
-const tag_rgba = 0b11111111;
-// 2-bit tags
-const tag_index = 0b00_000000;
-const tag_diff = 0b01_000000;
-const tag_luma = 0b10_000000;
-const tag_run = 0b11_000000;
-
-// end marker
-const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
 /// QOI_OP_INDEX
 /// b0[7:6] ... tag `0b00`
@@ -234,6 +337,45 @@ pub const Rgba = struct {
         };
     }
 
+    test "Rgba.rgbDiff" {
+        const tt = [_]struct { c1: Rgba, c2: Rgba, exp: RgbDiff }{
+            .{
+                .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+                .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+                .exp = .{ .dr = 1, .dg = 2, .db = 3 },
+            },
+            .{
+                .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+                .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+                .exp = .{ .dr = -1, .dg = -2, .db = -3 },
+            },
+            .{
+                .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+                .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
+                .exp = .{ .dr = 0, .dg = 0, .db = 0 },
+            },
+            .{
+                .c1 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+                .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+                .exp = .{ .dr = -1, .dg = -1, .db = -1 },
+            },
+            .{
+                .c1 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
+                .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+                .exp = .{ .dr = -128, .dg = -128, .db = -128 },
+            },
+            .{
+                .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+                .c2 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
+                .exp = .{ .dr = -128, .dg = -128, .db = -128 },
+            },
+        };
+
+        for (tt) |t| {
+            try expectEqual(t.exp, Rgba.rgbDiff(t.c1, t.c2));
+        }
+    }
+
     /// QOI_OP_RGB
     /// b0 ... tag `0b11111110`
     /// b1 ... red
@@ -241,6 +383,23 @@ pub const Rgba = struct {
     /// b3 ... green
     fn intoRgbChunk(self: Rgba) []const u8 {
         return &[_]u8{ tag_rgb, self.r, self.g, self.b };
+    }
+
+    test "Rgba.intoRgbChunk" {
+        const tt = [_]struct { px: Rgba, exp: []const u8 }{
+            .{
+                .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
+                .exp = &.{ 0b11111110, 10, 20, 30 },
+            },
+            .{
+                .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
+                .exp = &.{ 0b11111110, 10, 20, 30 },
+            },
+        };
+
+        for (tt) |t| {
+            try expectEqualSlices(u8, t.exp, t.px.intoRgbChunk());
+        }
     }
 
     /// QOI_OP_RGBA
@@ -252,80 +411,33 @@ pub const Rgba = struct {
     fn intoRgbaChunk(self: Rgba) []const u8 {
         return &[_]u8{ tag_rgba, self.r, self.g, self.b, self.a };
     }
+
+    test "Rgba.intoRgbaChunk" {
+        const tt = [_]struct { px: Rgba, exp: []const u8 }{
+            .{
+                .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
+                .exp = &.{ 0b11111111, 10, 20, 30, 255 },
+            },
+            .{
+                .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
+                .exp = &.{ 0b11111111, 10, 20, 30, 0 },
+            },
+        };
+
+        for (tt) |t| {
+            try expectEqualSlices(u8, t.exp, t.px.intoRgbaChunk());
+        }
+    }
+
+    fn applyRgbDiff(self: Rgba, diff: RgbDiff) Rgba {
+        return .{
+            .r = self.r +% diff.r,
+            .g = self.g +% diff.g,
+            .b = self.b +% diff.b,
+            .a = self.a,
+        };
+    }
 };
-
-test "Rgba.rgbDiff" {
-    const tt = [_]struct { c1: Rgba, c2: Rgba, exp: RgbDiff }{
-        .{
-            .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
-            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-            .exp = .{ .dr = 1, .dg = 2, .db = 3 },
-        },
-        .{
-            .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-            .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
-            .exp = .{ .dr = -1, .dg = -2, .db = -3 },
-        },
-        .{
-            .c1 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
-            .c2 = .{ .r = 1, .g = 2, .b = 3, .a = 255 },
-            .exp = .{ .dr = 0, .dg = 0, .db = 0 },
-        },
-        .{
-            .c1 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
-            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-            .exp = .{ .dr = -1, .dg = -1, .db = -1 },
-        },
-        .{
-            .c1 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
-            .c2 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-            .exp = .{ .dr = -128, .dg = -128, .db = -128 },
-        },
-        .{
-            .c1 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-            .c2 = .{ .r = 128, .g = 128, .b = 128, .a = 255 },
-            .exp = .{ .dr = -128, .dg = -128, .db = -128 },
-        },
-    };
-
-    for (tt) |t| {
-        try expectEqual(t.exp, Rgba.rgbDiff(t.c1, t.c2));
-    }
-}
-
-test "Rgba.intoRgbChunk" {
-    const tt = [_]struct { px: Rgba, exp: []const u8 }{
-        .{
-            .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
-            .exp = &.{ 0b11111110, 10, 20, 30 },
-        },
-        .{
-            .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
-            .exp = &.{ 0b11111110, 10, 20, 30 },
-        },
-    };
-
-    for (tt) |t| {
-        try expectEqualSlices(u8, t.exp, t.px.intoRgbChunk());
-    }
-}
-
-test "Rgba.intoRgbaChunk" {
-    const tt = [_]struct { px: Rgba, exp: []const u8 }{
-        .{
-            .px = .{ .r = 10, .g = 20, .b = 30, .a = 255 },
-            .exp = &.{ 0b11111111, 10, 20, 30, 255 },
-        },
-        .{
-            .px = .{ .r = 10, .g = 20, .b = 30, .a = 0 },
-            .exp = &.{ 0b11111111, 10, 20, 30, 0 },
-        },
-    };
-
-    for (tt) |t| {
-        try expectEqualSlices(u8, t.exp, t.px.intoRgbaChunk());
-    }
-}
 
 /// Difference of pixel colors (ignoring alpha channel).
 const RgbDiff = struct {
@@ -370,61 +482,84 @@ const RgbDiff = struct {
 
         return null;
     }
+
+    test "RgbDiff.tryIntoQoiChunk" {
+        const tt_non_null = [_]struct { diff: RgbDiff, exp: []const u8 }{
+            // diff chunk
+            .{
+                .diff = .{ .dr = -2, .dg = -1, .db = 1 },
+                .exp = &.{0b01_00_01_11},
+            },
+            .{
+                .diff = .{ .dr = 0, .dg = 0, .db = 1 },
+                .exp = &.{0b01_10_10_11},
+            },
+
+            // luma chunk
+            .{
+                .diff = .{ .dg = 10, .dr = 11, .db = 9 },
+                .exp = &.{ 0b10_101010, 0b1001_0111 },
+            },
+            .{
+                .diff = .{ .dg = 0, .dr = 7, .db = -8 },
+                .exp = &.{ 0b10_100000, 0b1111_0000 },
+            },
+            .{
+                .diff = .{ .dg = 31, .dr = 31, .db = 31 },
+                .exp = &.{ 0b10_111111, 0b1000_1000 },
+            },
+            .{
+                .diff = .{ .dg = -32, .dr = -32, .db = -32 },
+                .exp = &.{ 0b10_000000, 0b1000_1000 },
+            },
+        };
+        for (tt_non_null) |t| {
+            try expectEqualSlices(u8, t.exp, t.diff.tryIntoQoiChunk().?);
+        }
+
+        const tt_null = [_]RgbDiff{
+            .{ .dg = 64, .dr = 1, .db = -1 },
+            .{ .dg = 32, .dr = 32, .db = 32 },
+            .{ .dg = -33, .dr = -33, .db = -33 },
+            .{ .dg = 0, .dr = 8, .db = 0 },
+            .{ .dg = 0, .dr = -9, .db = 0 },
+            .{ .dg = 0, .dr = 0, .db = 8 },
+            .{ .dg = 0, .dr = 0, .db = -9 },
+        };
+        for (tt_null) |diff| {
+            try expect(diff.tryIntoQoiChunk() == null);
+        }
+    }
+
+    fn fromDiffChunk(b: u8) RgbDiff {
+        return .{
+            .dr = subBias((b >> 4) & 0b11, 2),
+            .dg = subBias((b >> 2) & 0b11, 2),
+            .db = subBias(b & 0b11, 2),
+        };
+    }
+
+    fn fromLumaChunk(b0: u8, b1: u8) RgbDiff {
+        const dg = subBias((b0 & 0b111111), 32);
+        return .{
+            .dr = dg +% subBias((b1 >> 4) & 0b1111, 8),
+            .dg = dg,
+            .db = dg +% subBias(b1 & 0b1111, 8),
+        };
+    }
 };
-
-test "RgbDiff.tryIntoQoiChunk" {
-    const tt_non_null = [_]struct { diff: RgbDiff, exp: []const u8 }{
-        // diff chunk
-        .{
-            .diff = .{ .dr = -2, .dg = -1, .db = 1 },
-            .exp = &.{0b01_00_01_11},
-        },
-        .{
-            .diff = .{ .dr = 0, .dg = 0, .db = 1 },
-            .exp = &.{0b01_10_10_11},
-        },
-
-        // luma chunk
-        .{
-            .diff = .{ .dg = 10, .dr = 11, .db = 9 },
-            .exp = &.{ 0b10_101010, 0b1001_0111 },
-        },
-        .{
-            .diff = .{ .dg = 0, .dr = 7, .db = -8 },
-            .exp = &.{ 0b10_100000, 0b1111_0000 },
-        },
-        .{
-            .diff = .{ .dg = 31, .dr = 31, .db = 31 },
-            .exp = &.{ 0b10_111111, 0b1000_1000 },
-        },
-        .{
-            .diff = .{ .dg = -32, .dr = -32, .db = -32 },
-            .exp = &.{ 0b10_000000, 0b1000_1000 },
-        },
-    };
-    for (tt_non_null) |t| {
-        try expectEqualSlices(u8, t.exp, t.diff.tryIntoQoiChunk().?);
-    }
-
-    const tt_null = [_]RgbDiff{
-        .{ .dg = 64, .dr = 1, .db = -1 },
-        .{ .dg = 32, .dr = 32, .db = 32 },
-        .{ .dg = -33, .dr = -33, .db = -33 },
-        .{ .dg = 0, .dr = 8, .db = 0 },
-        .{ .dg = 0, .dr = -9, .db = 0 },
-        .{ .dg = 0, .dr = 0, .db = 8 },
-        .{ .dg = 0, .dr = 0, .db = -9 },
-    };
-    for (tt_null) |diff| {
-        try expect(diff.tryIntoQoiChunk() == null);
-    }
-}
 
 const SeenColorsTable = struct {
     array: [64]Rgba = [_]Rgba{.{ .r = 0, .g = 0, .b = 0, .a = 0 }} ** 64,
 
     fn pixelIndex(p: Rgba) u8 {
         return ((p.r *% 3) +% (p.g *% 5) +% (p.b *% 7) +% (p.a *% 11)) % 64;
+    }
+
+    fn get(self: *SeenColorsTable, idx: u8) Rgba {
+        assert(0 <= idx and idx < 64);
+
+        return self.array[idx];
     }
 
     /// If given pixel color is in this table, return the index of it.
@@ -440,23 +575,23 @@ const SeenColorsTable = struct {
         self.array[idx] = new;
         return null;
     }
+
+    test "SeenColorsTable.matchPut" {
+        var seen_colors = SeenColorsTable{};
+
+        // put zero color value
+        try expectEqual(0, seen_colors.matchPut(.{ .r = 0, .g = 0, .b = 0, .a = 0 }).?);
+
+        // put unseen color
+        const red = Rgba{ .r = 255, .g = 0, .b = 0, .a = 255 }; // index: 50
+        try expect(seen_colors.matchPut(red) == null);
+        // put same color again
+        try expectEqual(50, seen_colors.matchPut(red).?);
+
+        // put a color which index collides against the seen color
+        const collider = Rgba{ .r = 10, .g = 2, .b = 3, .a = 255 }; // index: 50
+        try expect(seen_colors.matchPut(collider) == null);
+        // put same color again
+        try expectEqual(50, seen_colors.matchPut(collider).?);
+    }
 };
-
-test "SeenColorsTable.matchPut" {
-    var seen_colors = SeenColorsTable{};
-
-    // put zero color value
-    try expectEqual(0, seen_colors.matchPut(.{ .r = 0, .g = 0, .b = 0, .a = 0 }).?);
-
-    // put unseen color
-    const red = Rgba{ .r = 255, .g = 0, .b = 0, .a = 255 }; // index: 50
-    try expect(seen_colors.matchPut(red) == null);
-    // put same color again
-    try expectEqual(50, seen_colors.matchPut(red).?);
-
-    // put a color which index collides against the seen color
-    const collider = Rgba{ .r = 10, .g = 2, .b = 3, .a = 255 }; // index: 50
-    try expect(seen_colors.matchPut(collider) == null);
-    // put same color again
-    try expectEqual(50, seen_colors.matchPut(collider).?);
-}

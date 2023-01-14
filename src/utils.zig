@@ -80,3 +80,29 @@ test "addBias" {
         try expectEqual(t.exp, addBias(t.n, t.bias));
     }
 }
+
+// Inverse of addBias; convert `n` to `i8` by bit-preserving cast, then subtract `bias` from it.
+pub fn subBias(n: u8, bias: i8) i8 {
+    return @bitCast(i8, n) -% bias;
+}
+
+test "subBias" {
+    const tt = [_]struct { n: u8, bias: i8, exp: i8 }{
+        .{ .n = 0, .bias = 2, .exp = -2 },
+        .{ .n = 1, .bias = 2, .exp = -1 },
+        .{ .n = 2, .bias = 2, .exp = 0 },
+        .{ .n = 3, .bias = 2, .exp = 1 },
+
+        .{ .n = 0, .bias = 8, .exp = -8 },
+        .{ .n = 8, .bias = 8, .exp = 0 },
+        .{ .n = 15, .bias = 8, .exp = 7 },
+
+        .{ .n = 0, .bias = 32, .exp = -32 },
+        .{ .n = 32, .bias = 32, .exp = 0 },
+        .{ .n = 63, .bias = 32, .exp = 31 },
+    };
+
+    for (tt) |t| {
+        try expectEqual(t.exp, subBias(t.n, t.bias));
+    }
+}
