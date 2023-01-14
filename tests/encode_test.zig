@@ -5,26 +5,23 @@ const c_qoi = @import("./c_qoi_wrapper.zig");
 
 const Image = @import("zigimg").Image;
 
-const test_images_dir = "tests/images";
+const dirpath_test_images = "tests/images";
 
 test "QOI encode" {
-    const dir = std.fs.cwd().openDir(test_images_dir, .{}) catch |err| {
-        if (err == error.FileNotFound) {
-            return error.SkipZigTest;
-        } else {
-            return err;
-        }
+    // skip test if the test images directory does not exist.
+    const dir_test_images = std.fs.cwd().openIterableDir(dirpath_test_images, .{}) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
-    const iter_dir = try std.fs.cwd().openIterableDir(test_images_dir, .{});
-    var iter = iter_dir.iterate();
+    var iter = dir_test_images.iterate();
 
     std.debug.print("\n", .{});
+    
     var failed = false;
     while (try iter.next()) |e| {
         if (e.kind == .File and std.mem.eql(u8, std.fs.path.extension(e.name), ".png")) {
             std.debug.print("{s} ... ", .{e.name});
 
-            var png_file = try dir.openFile(e.name, .{});
+            var png_file = try  dir_test_images.dir.openFile(e.name, .{});
             const ok = try testEncode(&png_file);
 
             if (ok) {
@@ -42,7 +39,7 @@ test "QOI encode" {
 }
 
 fn testEncode(png_file: *std.fs.File) !bool {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
