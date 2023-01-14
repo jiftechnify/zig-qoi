@@ -38,5 +38,5 @@ pub fn build(b: *std.build.Builder) void {
 fn addDeps(step: *std.build.LibExeObjStep) void {
     step.addPackagePath("zigimg", "libs/zigimg/zigimg.zig");
     step.linkLibC();
-    step.addIncludePath("libs/qoi");
+    step.addIncludePath("libs/c_qoi");
 }

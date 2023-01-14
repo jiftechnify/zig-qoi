@@ -1,0 +1,6 @@
+[submodule "libs/c_qoi"]
+	path = libs/c_qoi
+	url = git@github.com:phoboslab/qoi.git
+[submodule "libs/zigimg"]
+	path = libs/zigimg
+	url = git@github.com:zigimg/zigimg.git
