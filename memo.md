@@ -19,7 +19,7 @@
 
 ```zig
 var buf = [100]u8 = undefined;
-var stream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
+var stream = std.io.fixedBufferStream(buf); // convenient constructor is available
 
 stream.writer();    // convert to `io.Writer`
 stream.reader();    // convert to `io.Reader`
@@ -40,3 +40,5 @@ stream.reader();    // convert to `io.Reader`
 
     - It makes the for loop unrolled, and the value in the loop variable compile-time known as an additional effect.
     - If you use bare for loop, compiler complains with the error like: `error: values of type '[N]SomeType' must be comptime-known, but index value is runtime-known`
+
+- We can skip tests according to some runtime conditions by returning `error.SkipZigTest`.

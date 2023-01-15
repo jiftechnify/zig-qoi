@@ -11,27 +11,27 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("zig-qoi", "src/main.zig");
-    addDeps(exe);
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.install();
-
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
     const tests = b.addTest("qoi.zig");
     addDeps(tests);
     tests.setBuildMode(mode);
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&tests.step);
+
+    const exe_qoiconv = b.addExecutable("qoiconv", "src/qoiconv.zig");
+    exe_qoiconv.addPackagePath("zigimg", "libs/zigimg/zigimg.zig");
+    exe_qoiconv.setTarget(target);
+    exe_qoiconv.setBuildMode(mode);
+    exe_qoiconv.install();
+
+    const run_qoiconv = exe_qoiconv.run();
+    run_qoiconv.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_qoiconv.addArgs(args);
+    }
+
+    const run_qoiconv_step = b.step("qoiconv", "Run qoiconv");
+    run_qoiconv_step.dependOn(&run_qoiconv.step);
 }
 
 // adds common dependencies to given LibExeObjStep.
