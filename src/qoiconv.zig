@@ -17,7 +17,8 @@ pub fn main() !void {
 }
 
 fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
-    var img = try zigimg.Image.fromFilePath(allocator, img_path);
+    var img_file = try openFile(img_path);
+    var img = try zigimg.Image.fromFile(allocator, &img_file);
 
     const img_name = std.fs.path.stem(img_path);
     const out_file_name = try std.fmt.allocPrint(allocator, "{s}.qoi", .{img_name});
@@ -34,6 +35,14 @@ fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
 
     try qoi.encode(header, pixels, out_file_buffered.writer());
     try out_file_buffered.flush();
+}
+
+// accepts absolute path as well as relative path.
+fn openFile(path: []const u8) !std.fs.File {
+    if (std.fs.path.isAbsolute(path)) {
+        return std.fs.openFileAbsolute(path, .{});
+    }
+    return std.fs.cwd().openFile(path, .{});
 }
 
 fn rgbasFromZigImg(allocator: std.mem.Allocator, img: zigimg.Image) ![]qoi.Rgba {
