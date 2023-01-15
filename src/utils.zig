@@ -15,7 +15,7 @@ pub const testing = struct {
     }
 };
 
-const expectEqual = testing.expectEqual;
+pub const expectEqual = testing.expectEqual;
 
 /// Checks if given `i8` value fits in the range of type `T`.
 ///

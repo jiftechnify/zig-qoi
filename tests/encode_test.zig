@@ -22,13 +22,11 @@ test "QOI encode" {
             std.debug.print("{s} ... ", .{e.name});
 
             var png_file = try dir_test_images.dir.openFile(e.name, .{});
-            const ok = try testEncode(&png_file);
-
-            if (ok) {
+            if (testEncode(&png_file)) |_| {
                 std.debug.print("OK\n", .{});
-            } else {
+            } else |err| {
                 failed = true;
-                std.debug.print("NG\n", .{});
+                std.debug.print("NG: {!}\n", .{err});
             }
         }
     }
@@ -38,7 +36,7 @@ test "QOI encode" {
     }
 }
 
-fn testEncode(png_file: *std.fs.File) !bool {
+fn testEncode(png_file: *std.fs.File) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -51,7 +49,7 @@ fn testEncode(png_file: *std.fs.File) !bool {
     var buf_zig = std.ArrayList(u8).init(alloc);
     try qoi.encode(png_img.header, png_img.pixels, buf_zig.writer());
 
-    return std.mem.eql(u8, buf_c.items, buf_zig.items);
+    try std.testing.expectEqualSlices(u8, buf_c.items, buf_zig.items);
 }
 
 fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !struct { header: qoi.QoiHeaderInfo, pixels: []qoi.Rgba } {

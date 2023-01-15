@@ -41,18 +41,6 @@ pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const q
     try writer.writeAll(@ptrCast([*]u8, enc_bin.?)[0..n_usize]);
 }
 
-pub fn write(allocator: Allocator, filename: []const u8, pixels: []const qoi.Rgba, header: qoi.QoiHeaderInfo) !void {
-    const desc = headerToQoiDesc(header);
-
-    const image_bin = try rgbasToBin(allocator, pixels);
-    defer image_bin.deinit();
-
-    const n = c.qoi_write(filename.ptr, image_bin.items.ptr, &desc);
-    if (n == 0) {
-        return error.CQoiEncodeError;
-    }
-}
-
 fn qoiDescToHeader(desc: c.qoi_desc) qoi.QoiHeaderInfo {
     return .{
         .width = desc.width,
@@ -62,16 +50,26 @@ fn qoiDescToHeader(desc: c.qoi_desc) qoi.QoiHeaderInfo {
     };
 }
 
-fn binToRgbas(alloc: Allocator, bin: []const u8) ![]qoi.Rgba {
+fn binToRgbas(alloc: Allocator, bin: []const u8, channels: u8) ![]qoi.Rgba {
     var list_px = std.ArrayList(qoi.Rgba).init(alloc);
     var i: usize = 0;
-    while (i < bin.len) : (i += 4) {
-        try list_px.append(.{
-            .r = bin[i + 0],
-            .g = bin[i + 1],
-            .b = bin[i + 2],
-            .a = bin[i + 3],
-        });
+    while (i < bin.len) : (i += channels) {
+        const px = switch (channels) {
+            3 => qoi.Rgba{
+                .r = bin[i + 0],
+                .g = bin[i + 1],
+                .b = bin[i + 2],
+                .a = 255,
+            },
+            4 => qoi.Rgba{
+                .r = bin[i + 0],
+                .g = bin[i + 1],
+                .b = bin[i + 2],
+                .a = bin[i + 3],
+            },
+            else => unreachable,
+        };
+        try list_px.append(px);
     }
     return list_px.toOwnedSlice();
 }
@@ -82,36 +80,22 @@ const QoiDecodeOutput = struct {
 };
 
 /// Freeing `pixels` in the output is caller's responsbility.
-pub fn read(allocator: Allocator, filename: []const u8, channels: u8) !QoiDecodeOutput {
-    var desc: c.qoi_desc = undefined;
+pub fn decode(allocator: Allocator, reader: anytype, size: usize) !QoiDecodeOutput {
+    const data = try reader.readAllAlloc(allocator, size);
+    defer allocator.free(data);
 
-    const dec_bin = c.qoi_read(filename.ptr, &desc, channels);
+    var desc: c.qoi_desc = undefined;
+    const dec_bin = c.qoi_decode(data.ptr, @intCast(c_int, data.len), &desc, 0);
     if (dec_bin == null) {
         return error.CQoiDecodeError;
     }
     defer c.free(dec_bin);
 
-    const px_len = @intCast(usize, desc.width) * @intCast(usize, desc.height);
-    const pixels = try binToRgbas(allocator, @ptrCast([*]u8, dec_bin.?)[0..(px_len * 4)]);
-
-    return .{
-        .header = qoiDescToHeader(desc),
-        .pixels = pixels,
-    };
-}
-
-/// Freeing `pixels` in the output is caller's responsbility.
-pub fn decode(allocator: Allocator, data: []const u8, channels: u8) !QoiDecodeOutput {
-    var desc: c.qoi_desc = undefined;
-
-    const dec_bin = c.qoi_decode(data.ptr, data.len, &desc, channels);
-    if (dec_bin == null) {
+    if (desc.channels != 3 and desc.channels != 4) {
         return error.CQoiDecodeError;
     }
-    defer c.free(dec_bin);
-
-    const px_len = @intCast(usize, desc.width) * @intCast(usize, desc.height);
-    const pixels = try binToRgbas(allocator, @ptrCast([*]u8, dec_bin.?)[0..(px_len * 4)]);
+    const bin_len = @intCast(usize, desc.width) * @intCast(usize, desc.height) * desc.channels;
+    const pixels = try binToRgbas(allocator, @ptrCast([*]u8, dec_bin.?)[0..bin_len], desc.channels);
 
     return .{
         .header = qoiDescToHeader(desc),

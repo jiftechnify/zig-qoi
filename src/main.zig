@@ -1,7 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const Image = @import("zigimg").Image;
+const zigimg = @import("zigimg");
+
 const qoi = @import("./qoi.zig");
 const c_qoi = @import("./c_qoi_wrapper.zig");
 
@@ -44,12 +45,11 @@ pub fn main() !void {
     defer out_file.close();
 
     var ss = std.io.StreamSource{ .file = out_file };
-    const n = try qoi.encode(sample_header, &sample_pixels, ss.writer());
-    std.debug.print("zig impl: {} bytes written\n", .{n});
+    try qoi.encode(sample_header, &sample_pixels, ss.writer());
 
     // sample: convert PNG to QOI with C impl
     // read the image file
-    var png_img = try Image.fromFilePath(allocator, "blackleaf.png");
+    var png_img = try zigimg.Image.fromFilePath(allocator, "blackleaf.png");
     defer png_img.deinit();
 
     // build QOI header from image metadata

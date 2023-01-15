@@ -111,27 +111,27 @@ const QoiDecoder = struct {
         while (true) {
             const b = try reader.readByte();
 
-            if (self.last_idx_0_px != null) {
+            if (self.last_idx_0_px) |px| {
                 if (b == 0) {
                     // previous byte was first byte of end marker!
                     break;
                 }
 
                 // previous byte was QOI_OP_INDEX(0)
-                try list_px.append(self.last_idx_0_px.?);
-                self.px_prev = self.last_idx_0_px;
+                try list_px.append(px);
+                self.px_prev = px;
                 self.last_idx_0_px = null;
             }
 
-            const px_n = blk: {
+            const px_and_run: ?struct{ px: Rgba, run: u8 } = blk: {
                 switch (b) {
                     tag_rgb => {
                         const rgb = try reader.readBytesNoEof(3);
-                        break :blk .{ .px = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = self.px_prev.a }, .n = 1 };
+                        break :blk .{ .px = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = self.px_prev.a }, .run = 1 };
                     },
                     tag_rgba => {
                         const rgba = try reader.readBytesNoEof(4);
-                        break :blk .{ .px = .{ .r = rgba[0], .g = rgba[1], .b = rgba[2], .a = rgba[3] }, .n = 1 };
+                        break :blk .{ .px = .{ .r = rgba[0], .g = rgba[1], .b = rgba[2], .a = rgba[3] }, .run = 1 };
                     },
                     else => {},
                 }
@@ -141,38 +141,38 @@ const QoiDecoder = struct {
                     tag_index => {
                         if (b == 0) { // maybe first byte of end marker; defer appending pixel
                             self.last_idx_0_px = self.seen_colors.get(0);
-                            break :blk .{ .px = .{}, .n = 0 };
+                            break :blk null;
                         }
-                        break :blk .{ .px = self.seen_colors.get(b), .n = 1 };
+                        break :blk .{ .px = self.seen_colors.get(b), .run = 1 };
                     },
                     tag_diff => {
                         const diff = RgbDiff.fromDiffChunk(b);
-                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .n = 1 };
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
                     },
                     tag_luma => {
                         const b1 = try reader.readByte();
                         const diff = RgbDiff.fromLumaChunk(b, b1);
-                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .n = 1 };
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
                     },
                     tag_run => {
                         const run = (b & 0b00_111111) + 1;
-                        break :blk .{ .px = self.px_prev, .n = run };
+                        break :blk .{ .px = self.px_prev, .run = run };
                     },
                     else => unreachable,
                 }
             };
 
-            if (px_n.n > 0) {
-                try list_px.appendNTimes(px_n.px, px_n.n);
+            if (px_and_run) |pxr| {
+                try list_px.appendNTimes(pxr.px, pxr.run);
 
-                self.px_prev = px_n.px;
-                _ = self.seen_colors.matchPut(px_n.px);
+                self.px_prev = pxr.px;
+                _ = self.seen_colors.matchPut(pxr.px);
             }
         }
 
         // so far, 2 consecutive zero bytes detecetd; match next 6 bytes against end marker pattern
         const end = try reader.readBytesNoEof(6);
-        if (!std.mem.eql(u8, end, &.{0, 0, 0, 0, 0, 1})) {
+        if (!std.mem.eql(u8, &end, &.{0, 0, 0, 0, 0, 1})) {
             return error.InvalidQoiFormat;
         }
 
@@ -183,7 +183,7 @@ const QoiDecoder = struct {
 
         return .{
             .header = header,
-            .pixels = list_px.toOwnedSlice(),
+            .pixels = try list_px.toOwnedSlice(),
         };
     }
 };
@@ -431,9 +431,9 @@ pub const Rgba = struct {
 
     fn applyRgbDiff(self: Rgba, diff: RgbDiff) Rgba {
         return .{
-            .r = self.r +% diff.r,
-            .g = self.g +% diff.g,
-            .b = self.b +% diff.b,
+            .r = self.r +% @bitCast(u8, diff.dr),
+            .g = self.g +% @bitCast(u8, diff.dg),
+            .b = self.b +% @bitCast(u8, diff.db),
             .a = self.a,
         };
     }
