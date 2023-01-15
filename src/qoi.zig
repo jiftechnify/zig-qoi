@@ -37,7 +37,7 @@ const QoiEncoder = struct {
 
     /// Encodes single pixel then return number of bytes written to the `writer`.
     fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !void {
-        if (px.eql(self.px_prev)) {
+        if (Rgba.eql(px, self.px_prev)) {
             self.run += 1;
             if (self.run == max_run_length) {
                 try writer.writeAll(runChunk(max_run_length));
@@ -316,24 +316,24 @@ test "runChunk" {
     try expectEqualSlices(u8, &.{0b11_101001}, runChunk(42));
 }
 
-/// Pixel color in RGBA8 format.
+/// Pixel color in RGBA32 format (each pixel has 4 channels: R, G, B, and A, each channel is 8-bit depth).
 pub const Rgba = struct {
     r: u8,
     g: u8,
     b: u8,
     a: u8,
 
-    /// Checks if two colors are equal.
-    fn eql(self: Rgba, other: Rgba) bool {
-        return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a;
+    /// Checks if colors of pixels are equal.
+    fn eql(p1: Rgba, p2: Rgba) bool {
+        return p1.r == p2.r and p1.g == p2.g and p1.b == p2.b and p1.a == p2.a;
     }
 
-    /// Calculates difference of pixel colors (`c1 - c2`). Ignores alpha channel.
-    fn rgbDiff(c1: Rgba, c2: Rgba) RgbDiff {
+    /// Calculates difference of pixel colors (`p1 - p2`). Ignores alpha channel.
+    fn rgbDiff(p1: Rgba, p2: Rgba) RgbDiff {
         return .{
-            .dr = @bitCast(i8, c1.r -% c2.r),
-            .dg = @bitCast(i8, c1.g -% c2.g),
-            .db = @bitCast(i8, c1.b -% c2.b),
+            .dr = @bitCast(i8, p1.r -% p2.r),
+            .dg = @bitCast(i8, p1.g -% p2.g),
+            .db = @bitCast(i8, p1.b -% p2.b),
         };
     }
 
@@ -568,7 +568,7 @@ const SeenColorsTable = struct {
         const idx = pixelIndex(new);
 
         const old = self.array[idx];
-        if (new.eql(old)) {
+        if (Rgba.eql(new, old)) {
             return idx;
         }
 
