@@ -76,3 +76,44 @@ fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !qoi.ImageData
 
     return .{ .header = header, .pixels = try list.toOwnedSlice() };
 }
+
+const testcard_path = "tests/images/testcard_rgba.png";
+const test_out_path = "test.qoi";
+
+test "encodeToFile" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // skip test if the test image does not exist.
+    var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest else return err;
+    };
+    const img_data = try readPngImage(alloc, &f);
+
+    var out_f = try std.fs.cwd().createFile(test_out_path, .{});
+
+    try qoi.encodeToFile(img_data, &out_f);
+
+    std.fs.cwd().deleteFile(test_out_path) catch |err| {
+        std.debug.print("failed to delete test output file: {!}", .{err});
+    };
+}
+
+test "encodeToFileByPath" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // skip test if the test image does not exist.
+    var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest else return err;
+    };
+    const img_data = try readPngImage(alloc, &f);
+
+    _ = try qoi.encodeToFileByPath(img_data, test_out_path);
+
+    std.fs.cwd().deleteFile(test_out_path) catch |err| {
+        std.debug.print("failed to delete test output file: {!}", .{err});
+    };
+}

@@ -22,7 +22,7 @@ test "QOI decode" {
             std.debug.print("{s} ... ", .{e.name});
 
             var qoi_file = try dir_test_images.dir.openFile(e.name, .{});
-            if (testDecode(&qoi_file)) |_| {
+            if (testDecode(qoi_file)) |_| {
                 std.debug.print("OK\n", .{});
             } else |err| {
                 failed = true;
@@ -36,7 +36,7 @@ test "QOI decode" {
     }
 }
 
-fn testDecode(qoi_file: *std.fs.File) !void {
+fn testDecode(qoi_file: std.fs.File) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -54,4 +54,30 @@ fn testDecode(qoi_file: *std.fs.File) !void {
     while (i < res_zig.pixels.len) : (i += 1) {
         try expectEqual(res_zig.pixels[i], res_c.pixels[i]);
     }
+}
+
+const testcard_path = "tests/images/testcard_rgba.qoi";
+
+test "decodeFromFile" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // skip test if the test image does not exist.
+    const f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest else return err;
+    };
+    _ = try qoi.decodeFromFile(alloc, f);
+}
+
+test "decodeFromFileByPath" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // skip test if the test image does not exist.
+    std.fs.cwd().access(testcard_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest else return err;
+    };
+    _ = try qoi.decodeFromFileByPath(alloc, testcard_path);
 }
