@@ -1,4 +1,5 @@
 const std = @import("std");
+const File = std.fs.File;
 
 pub const testing = struct {
     // workaround for an issue of `expectEqual`.
@@ -106,3 +107,20 @@ test "subBias" {
         try expectEqual(t.exp, subBias(t.n, t.bias));
     }
 }
+
+/// file operations which accept absolute path as well as relative path.
+pub const generic_path = struct {
+    pub fn openFile(path: []const u8, flags: File.OpenFlags) !File {
+        if (std.fs.path.isAbsolute(path)) {
+            return std.fs.openFileAbsolute(path, flags);
+        }
+        return std.fs.cwd().openFile(path, flags);
+    }
+
+    pub fn createFile(path: []const u8, flags: File.CreateFlags) !File {
+        if (std.fs.path.isAbsolute(path)) {
+            return std.fs.createFileAbsolute(path, flags);
+        }
+        return std.fs.cwd().createFile(path, flags);
+    }
+};

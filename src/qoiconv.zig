@@ -1,5 +1,6 @@
 const std = @import("std");
 const qoi = @import("./qoi.zig");
+const generic_path = @import("./utils.zig").generic_path;
 const zigimg = @import("zigimg");
 
 pub fn main() !void {
@@ -17,13 +18,11 @@ pub fn main() !void {
 }
 
 fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
-    var img_file = try openFile(img_path);
+    var img_file = try generic_path.openFile(img_path, .{});
     var img = try zigimg.Image.fromFile(allocator, &img_file);
 
     const img_name = std.fs.path.stem(img_path);
     const out_file_name = try std.fmt.allocPrint(allocator, "{s}.qoi", .{img_name});
-    var out_file = try std.fs.cwd().createFile(out_file_name, .{ .truncate = true });
-    var out_file_buffered = std.io.bufferedWriter(out_file.writer());
 
     const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
@@ -33,16 +32,7 @@ fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
     };
     const pixels = try rgbasFromZigImg(allocator, img);
 
-    try qoi.encode(header, pixels, out_file_buffered.writer());
-    try out_file_buffered.flush();
-}
-
-// accepts absolute path as well as relative path.
-fn openFile(path: []const u8) !std.fs.File {
-    if (std.fs.path.isAbsolute(path)) {
-        return std.fs.openFileAbsolute(path, .{});
-    }
-    return std.fs.cwd().openFile(path, .{});
+    try qoi.encodeToFileByPath(.{ .header = header, .pixels = pixels }, out_file_name);
 }
 
 fn rgbasFromZigImg(allocator: std.mem.Allocator, img: zigimg.Image) ![]qoi.Rgba {

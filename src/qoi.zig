@@ -1,9 +1,13 @@
 const std = @import("std");
+const io = std.io;
+const File = std.fs.File;
+const Allocator = std.mem.Allocator;
 
 const utils = @import("./utils.zig");
 const fitsIn = utils.fitsIn;
 const addBias = utils.addBias;
 const subBias = utils.subBias;
+const generic_path = utils.generic_path;
 
 const assert = std.debug.assert;
 
@@ -13,10 +17,29 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
+/// QOI header info + slice of pixels in RGBA32 format.
+pub const ImageData = struct {
+    header: HeaderInfo,
+    pixels: []Rgba, 
+};
+
 /// Writes QOI-encoded image data to given `writer`.
-pub fn encode(header_info: HeaderInfo, pixels: []const Rgba, writer: anytype) !void {
+pub fn encode(img_data: ImageData, writer: anytype) !void {
     var encoder = Encoder{};
-    try encoder.encode(header_info, pixels, writer);
+    try encoder.encode(img_data, writer);
+}
+
+/// Writes QOI-encoded image data to given file.
+pub fn encodeToFile(img_data: ImageData, dst_file: *File) !void {
+    var buffered = io.bufferedWriter(dst_file.writer());
+    try encode(img_data, buffered.writer());
+    try buffered.flush();
+}
+
+/// Writes QOI-encoded image data to the file created at `dst_path`.
+pub fn encodeToFileByPath(img_data: ImageData, dst_path: []const u8) !void {
+    var f = try generic_path.createFile(dst_path, .{});
+    try encodeToFile(img_data, &f);
 }
 
 /// Encodes image data into QOI format.
@@ -26,10 +49,10 @@ const Encoder = struct {
     run: u8 = 0,
 
     /// Encodes an image (in the form of a pixel array) to writer in QOI format.
-    fn encode(self: *Encoder, header_info: HeaderInfo, pixels: []const Rgba, writer: anytype) !void {
-        try header_info.writeTo(writer);
+    fn encode(self: *Encoder, img_data: ImageData, writer: anytype) !void {
+        try img_data.header.writeTo(writer);
 
-        for (pixels) |px| {
+        for (img_data.pixels) |px| {
             try self.encodePixel(px, writer);
         }
         try self.finish(writer);
@@ -84,16 +107,25 @@ const Encoder = struct {
     }
 };
 
-const DecodeOutput = struct {
-    header: HeaderInfo,
-    pixels: []Rgba, 
-};
-
 /// Reads QOI-encoded image data from given `reader`.
-/// Freeing `pixels` in the output is caller's responsibility.
-pub fn decode(allocator: std.mem.Allocator, reader: anytype) !DecodeOutput {
+/// Freeing `pixels` in the result is caller's responsibility.
+pub fn decode(allocator: Allocator, reader: anytype) !ImageData {
     var decorder = Decoder{};
     return try decorder.decode(allocator, reader);
+}
+
+/// Reads QOI-encoded image data from given file.
+/// Freeing `pixels` in the result is caller's responsibility.
+pub fn decodeFromFile(allocator: Allocator, src_file: File) !ImageData {
+    var buffered = io.bufferedReader(src_file.reader());
+    return try decode(allocator, buffered.reader());
+}
+
+/// Reads QOI-encoded image data from the file at `src_path`.
+/// Freeing `pixels` in the result is caller's responsibility.
+pub fn decodeFromFileByPath(allocator: Allocator, src_path: []const u8) !ImageData {
+    const f = try generic_path.openFile(src_path, .{});
+    return try decodeFromFile(allocator, f);
 }
 
 const Decoder = struct {
@@ -104,7 +136,7 @@ const Decoder = struct {
 
     /// Reads and decodes an QOI image from `reader`.
     /// Freeing `pixels` in the output is caller's responsibility.
-    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !DecodeOutput {
+    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !ImageData {
         const header = try HeaderInfo.readFrom(reader);
 
         var list_px = std.ArrayList(Rgba).init(allocator);
@@ -204,27 +236,6 @@ const tag_run = 0b11_000000;
 // end marker
 const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
-/// Colorspace specifier for the QOI header.
-pub const Colorspace = enum(u8) {
-    sRGB = 0, // sRGB with linear alpha
-    linear = 1, // all channels linear
-
-    const Self = @This();
-
-    fn writeTo(self: Self, writer: anytype) !void {
-        try writer.writeIntBig(u8, @enumToInt(self));
-    }
-
-    fn readFrom(reader: anytype) !Self {
-        const n = try reader.readIntBig(u8);
-        return switch (n) {
-            0 => .sRGB,
-            1 => .linear,
-            else => error.InvalidQoiColorspace,
-        };
-    }
-};
-
 /// Information embeded in the QOI header.
 pub const HeaderInfo = struct {
     width: u32, 
@@ -282,6 +293,27 @@ pub const HeaderInfo = struct {
         var stream = std.io.FixedBufferStream([]const u8){ .buffer = &invalid_header, .pos = 0 };
 
         try expectError(error.InvalidQoiFormat, HeaderInfo.readFrom(&stream.reader()));
+    }
+};
+
+/// Colorspace specifier for the QOI header.
+pub const Colorspace = enum(u8) {
+    sRGB = 0, // sRGB with linear alpha
+    linear = 1, // all channels linear
+
+    const Self = @This();
+
+    fn writeTo(self: Self, writer: anytype) !void {
+        try writer.writeIntBig(u8, @enumToInt(self));
+    }
+
+    fn readFrom(reader: anytype) !Self {
+        const n = try reader.readIntBig(u8);
+        return switch (n) {
+            0 => .sRGB,
+            1 => .linear,
+            else => error.InvalidQoiColorspace,
+        };
     }
 };
 
