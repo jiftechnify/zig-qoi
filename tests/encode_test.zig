@@ -44,22 +44,22 @@ fn testEncode(png_file: *std.fs.File) !void {
     const png_img = try readPngImage(alloc, png_file);
 
     var buf_c = std.ArrayList(u8).init(alloc);
-    try c_qoi.encode(alloc, png_img.header, png_img.pixels, buf_c.writer());
+    try c_qoi.encode(alloc, png_img, buf_c.writer());
 
     var buf_zig = std.ArrayList(u8).init(alloc);
-    try qoi.encode(png_img.header, png_img.pixels, buf_zig.writer());
+    try qoi.encode(png_img, buf_zig.writer());
 
     try std.testing.expectEqualSlices(u8, buf_c.items, buf_zig.items);
 }
 
-fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !struct { header: qoi.QoiHeaderInfo, pixels: []qoi.Rgba } {
+fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !qoi.ImageData {
     var img = try Image.fromFile(alloc, png_file);
 
-    const header = qoi.QoiHeaderInfo{
+    const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
         .height = @intCast(u32, img.height),
         .channels = 4,
-        .colorspace = qoi.QoiColorspace.sRGB,
+        .colorspace = qoi.Colorspace.sRGB,
     };
 
     var list = std.ArrayList(qoi.Rgba).init(alloc);

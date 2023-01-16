@@ -14,19 +14,19 @@ const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
 /// Writes QOI-encoded image data to given `writer`.
-pub fn encode(header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
-    var encoder = QoiEncoder{};
+pub fn encode(header_info: HeaderInfo, pixels: []const Rgba, writer: anytype) !void {
+    var encoder = Encoder{};
     try encoder.encode(header_info, pixels, writer);
 }
 
 /// Encodes image data into QOI format.
-const QoiEncoder = struct {
+const Encoder = struct {
     px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     seen_colors: SeenColorsTable = .{},
     run: u8 = 0,
 
     /// Encodes an image (in the form of a pixel array) to writer in QOI format.
-    fn encode(self: *QoiEncoder, header_info: QoiHeaderInfo, pixels: []const Rgba, writer: anytype) !void {
+    fn encode(self: *Encoder, header_info: HeaderInfo, pixels: []const Rgba, writer: anytype) !void {
         try header_info.writeTo(writer);
 
         for (pixels) |px| {
@@ -36,7 +36,7 @@ const QoiEncoder = struct {
     }
 
     /// Encodes single pixel then return number of bytes written to the `writer`.
-    fn encodePixel(self: *QoiEncoder, px: Rgba, writer: anytype) !void {
+    fn encodePixel(self: *Encoder, px: Rgba, writer: anytype) !void {
         if (Rgba.eql(px, self.px_prev)) {
             self.run += 1;
             if (self.run == max_run_length) {
@@ -75,7 +75,7 @@ const QoiEncoder = struct {
 
     /// Writes the last run chunk (if needed) and end marker bytes.
     /// Must be called after iteration over pixels have finished.
-    fn finish(self: *QoiEncoder, writer: anytype) !void {
+    fn finish(self: *Encoder, writer: anytype) !void {
         if (self.run > 0) {
             try writer.writeAll(runChunk(self.run));
             self.run = 0;
@@ -84,19 +84,19 @@ const QoiEncoder = struct {
     }
 };
 
-const QoiDecodeOutput = struct {
-    header: QoiHeaderInfo,
+const DecodeOutput = struct {
+    header: HeaderInfo,
     pixels: []Rgba, 
 };
 
 /// Reads QOI-encoded image data from given `reader`.
 /// Freeing `pixels` in the output is caller's responsibility.
-pub fn decode(allocator: std.mem.Allocator, reader: anytype) !QoiDecodeOutput {
-    var decorder = QoiDecoder{};
+pub fn decode(allocator: std.mem.Allocator, reader: anytype) !DecodeOutput {
+    var decorder = Decoder{};
     return try decorder.decode(allocator, reader);
 }
 
-const QoiDecoder = struct {
+const Decoder = struct {
     px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     seen_colors: SeenColorsTable = .{},
 
@@ -104,8 +104,8 @@ const QoiDecoder = struct {
 
     /// Reads and decodes an QOI image from `reader`.
     /// Freeing `pixels` in the output is caller's responsibility.
-    fn decode(self: *QoiDecoder, allocator: std.mem.Allocator, reader: anytype) !QoiDecodeOutput {
-        const header = try QoiHeaderInfo.readFrom(reader);
+    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !DecodeOutput {
+        const header = try HeaderInfo.readFrom(reader);
 
         var list_px = std.ArrayList(Rgba).init(allocator);
         while (true) {
@@ -204,7 +204,8 @@ const tag_run = 0b11_000000;
 // end marker
 const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
-pub const QoiColorspace = enum(u8) {
+/// Colorspace specifier for the QOI header.
+pub const Colorspace = enum(u8) {
     sRGB = 0, // sRGB with linear alpha
     linear = 1, // all channels linear
 
@@ -224,11 +225,12 @@ pub const QoiColorspace = enum(u8) {
     }
 };
 
-pub const QoiHeaderInfo = struct {
-    width: u32, // image width in pixels
-    height: u32, // image height in pixels
+/// Information embeded in the QOI header.
+pub const HeaderInfo = struct {
+    width: u32, 
+    height: u32,
     channels: u8, // number of color channels; 3 = RGB, 4 = RGBA
-    colorspace: QoiColorspace,
+    colorspace: Colorspace,
 
     const Self = @This();
 
@@ -252,16 +254,16 @@ pub const QoiHeaderInfo = struct {
             return error.InvalidQoiFormat;
         }
 
-        return QoiHeaderInfo{
+        return HeaderInfo{
             .width = try reader.readIntBig(u32),
             .height = try reader.readIntBig(u32),
             .channels = try reader.readIntBig(u8),
-            .colorspace = try QoiColorspace.readFrom(reader),
+            .colorspace = try Colorspace.readFrom(reader),
         };
     }
 
     test "header info writeTo/readFrom" {
-        const original_header = QoiHeaderInfo{ .width = 800, .height = 600, .channels = 3, .colorspace = QoiColorspace.linear };
+        const original_header = HeaderInfo{ .width = 800, .height = 600, .channels = 3, .colorspace = Colorspace.linear };
 
         var buf: [14]u8 = undefined;
         var stream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
@@ -269,7 +271,7 @@ pub const QoiHeaderInfo = struct {
         try original_header.writeTo(&stream.writer());
 
         try stream.seekTo(0);
-        const read_header = try QoiHeaderInfo.readFrom(&stream.reader());
+        const read_header = try HeaderInfo.readFrom(&stream.reader());
 
         try expectEqual(original_header, read_header);
     }
@@ -279,7 +281,7 @@ pub const QoiHeaderInfo = struct {
         const invalid_header = [_]u8{ 0x89, 0x50, 0x4e, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0 };
         var stream = std.io.FixedBufferStream([]const u8){ .buffer = &invalid_header, .pos = 0 };
 
-        try expectError(error.InvalidQoiFormat, QoiHeaderInfo.readFrom(&stream.reader()));
+        try expectError(error.InvalidQoiFormat, HeaderInfo.readFrom(&stream.reader()));
     }
 };
 
@@ -556,7 +558,7 @@ const SeenColorsTable = struct {
         return ((p.r *% 3) +% (p.g *% 5) +% (p.b *% 7) +% (p.a *% 11)) % 64;
     }
 
-    fn get(self: *SeenColorsTable, idx: u8) Rgba {
+    fn get(self: *const SeenColorsTable, idx: u8) Rgba {
         assert(0 <= idx and idx < 64);
 
         return self.array[idx];

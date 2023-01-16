@@ -25,7 +25,7 @@ fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
     var out_file = try std.fs.cwd().createFile(out_file_name, .{ .truncate = true });
     var out_file_buffered = std.io.bufferedWriter(out_file.writer());
 
-    const header = qoi.QoiHeaderInfo{
+    const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
         .height = @intCast(u32, img.height),
         .channels = 4,

@@ -7,7 +7,7 @@ const c = @cImport({
     @cInclude("qoi.h");
 });
 
-fn headerToQoiDesc(header: qoi.QoiHeaderInfo) c.qoi_desc {
+fn headerToQoiDesc(header: qoi.HeaderInfo) c.qoi_desc {
     return .{
         .width = header.width,
         .height = header.height,
@@ -24,10 +24,10 @@ fn rgbasToBin(alloc: Allocator, pixels: []const qoi.Rgba) !std.ArrayList(u8) {
     return buf;
 }
 
-pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const qoi.Rgba, writer: anytype) !void {
-    const desc = headerToQoiDesc(header);
+pub fn encode(allocator: Allocator, img_data: qoi.ImageData, writer: anytype) !void {
+    const desc = headerToQoiDesc(img_data.header);
 
-    const image_bin = try rgbasToBin(allocator, pixels);
+    const image_bin = try rgbasToBin(allocator, img_data.pixels);
     defer image_bin.deinit();
 
     var n: c_int = 0;
@@ -41,12 +41,12 @@ pub fn encode(allocator: Allocator, header: qoi.QoiHeaderInfo, pixels: []const q
     try writer.writeAll(@ptrCast([*]u8, enc_bin.?)[0..n_usize]);
 }
 
-fn qoiDescToHeader(desc: c.qoi_desc) qoi.QoiHeaderInfo {
+fn qoiDescToHeader(desc: c.qoi_desc) qoi.HeaderInfo {
     return .{
         .width = desc.width,
         .height = desc.height,
         .channels = desc.channels,
-        .colorspace = @intToEnum(qoi.QoiColorspace, desc.colorspace),
+        .colorspace = @intToEnum(qoi.Colorspace, desc.colorspace),
     };
 }
 
@@ -74,13 +74,8 @@ fn binToRgbas(alloc: Allocator, bin: []const u8, channels: u8) ![]qoi.Rgba {
     return list_px.toOwnedSlice();
 }
 
-const QoiDecodeOutput = struct {
-    header: qoi.QoiHeaderInfo,
-    pixels: []qoi.Rgba,
-};
-
 /// Freeing `pixels` in the output is caller's responsbility.
-pub fn decode(allocator: Allocator, reader: anytype, size: usize) !QoiDecodeOutput {
+pub fn decode(allocator: Allocator, reader: anytype, size: usize) !qoi.ImageData {
     const data = try reader.readAllAlloc(allocator, size);
     defer allocator.free(data);
 
