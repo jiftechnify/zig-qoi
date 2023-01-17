@@ -32,6 +32,16 @@ pub fn build(b: *std.build.Builder) void {
 
     const run_qoiconv_step = b.step("qoiconv", "Run qoiconv");
     run_qoiconv_step.dependOn(&run_qoiconv.step);
+
+    const wasm = b.addSharedLibrary("qoi", "qoi_wasm.zig", .unversioned);
+    wasm.rdynamic = true;
+    wasm.setOutputDir("zig-out/lib/wasm");
+    wasm.setTarget(target);
+    wasm.setBuildMode(mode);
+    wasm.install();
+
+    const wasm_step = b.step("wasm", "Build wasm module");
+    wasm_step.dependOn(&wasm.step);
 }
 
 // adds common dependencies to given LibExeObjStep.
