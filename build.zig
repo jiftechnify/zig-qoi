@@ -35,8 +35,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const wasm = b.addSharedLibrary("qoi", "qoi_wasm.zig", .unversioned);
     wasm.rdynamic = true;
-    wasm.setOutputDir("zig-out/lib/wasm");
-    wasm.setTarget(target);
+    wasm.setOutputDir("wasm_sample");
+    wasm.setTarget();
     wasm.setBuildMode(mode);
     wasm.install();
 

@@ -13,3 +13,20 @@ zig build qoiconv -- <path to image file>
 ```
 
 It uses [zigimg](https://github.com/zigimg/zigimg) for decoding image files.  You can convert only images in formats which zigimg can decode.
+
+
+## Wasm
+This library can be used as a Wasm module. 
+
+Steps to run Wasm sample:
+
+```sh
+# build a wasm module
+zig build wasm -Dtarget=wasm32-freestanding
+
+# serve the sample project
+cd wasm_sample
+npm run serve
+
+# oopen http://localhost:8080 in your browser and you'll find a sample application!
+```

@@ -1,0 +1,16 @@
+{
+  "name": "zoi_wasm_sample",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "http-server -c-1"
+  },
+  "keywords": [],
+  "author": "jiftechnify",
+  "license": "",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

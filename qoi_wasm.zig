@@ -1,26 +1,36 @@
 const std = @import("std");
 const qoi = @import("src/qoi.zig");
 
+/// Allocates a byte buffer on the wasm linear memory and returns its memory offset.
+export fn allocateBuffer(len: usize) ?[*]u8 {
+    log(.info, "allocateBuffer len: {}", .{ len });
+    var buf = std.heap.page_allocator.alloc(u8, len) catch |err| {
+        log(.err, "failed to allocate buffer: {!}", .{err});
+        return null;
+    };
+    return buf.ptr;
+}
+
+/// Frees the byte buffer allocated on wasm linear memory.
+export fn freeBuffer(ptr: [*]u8, len: usize) void {
+    log(.info, "freeBuffer ptr: {*}, len: {}", .{ ptr, len });
+    std.heap.page_allocator.free(ptr[0..len]);
+}
 
 const QoiHeaderInfo = extern struct {
-    width: u32,
-    height: u32,
-    channels: u8,
-    colorspace: qoi.Colorspace,
+    width: u32, // 0
+    height: u32, // 4
+    channels: u8, // 8
+    colorspace: qoi.Colorspace, // 9
 };
 
-const QoiImage = extern struct {
-    header: QoiHeaderInfo,
-    img_buf: [*]u8,
-    img_len: usize,
+/// QOI-formatted image data buffer.
+const QoiData = extern struct {
+    buf: [*]u8, // 0
+    len: usize, // 4
 };
 
-const ByteSlice = extern struct {
-    buf: [*]u8,
-    len: usize,
-};
-
-export fn encode(header: QoiHeaderInfo, img_buf: [*]u8, img_len: usize) ByteSlice {
+export fn encode(header: QoiHeaderInfo, img_buf: [*]const u8, img_len: u32) ?*QoiData {
     log(.info, "log from encoder!", .{});
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -45,7 +55,7 @@ export fn encode(header: QoiHeaderInfo, img_buf: [*]u8, img_len: usize) ByteSlic
         };
         pixels.append(px) catch |err| {
             log(.err, "failed to encode: {!}", .{err});
-            return std.mem.zeroes(ByteSlice);
+            return null;
         };
     }
 
@@ -57,17 +67,24 @@ export fn encode(header: QoiHeaderInfo, img_buf: [*]u8, img_len: usize) ByteSlic
     var out_buf = std.ArrayList(u8).init(std.heap.page_allocator);
     qoi.encode(img_data, out_buf.writer()) catch |err| {
         log(.err, "failed to encode: {!}", .{err});
-        return std.mem.zeroes(ByteSlice);
+        return null;
     };
 
-    return .{
+    return &.{
         .buf = out_buf.items.ptr,
         .len = out_buf.items.len,
     };
 }
 
-export fn decode(buf: [*]u8, len: usize) QoiImage {
-    log(.info,  "log from decoder!", .{});
+/// QOI header + ImageData(array of RGBA32 pixels)
+const ImageDataWithQoiHeader = extern struct {
+    header: QoiHeaderInfo, // 0
+    buf: [*]u8, // 12
+    len: usize, // 16
+};
+
+export fn decode(buf: [*]const u8, len: usize) ?*ImageDataWithQoiHeader {
+    log(.info, "log from decoder!", .{});
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -75,8 +92,8 @@ export fn decode(buf: [*]u8, len: usize) QoiImage {
 
     var fbs = std.io.fixedBufferStream(buf[0..len]);
     const res = qoi.decode(allocator, fbs.reader()) catch |err| {
-        log(.err,  "failed to decode: {!}", .{err});
-        return std.mem.zeroes(QoiImage);
+        log(.err, "failed to decode: {!}", .{err});
+        return null;
     };
 
     const h = QoiHeaderInfo{
@@ -87,19 +104,21 @@ export fn decode(buf: [*]u8, len: usize) QoiImage {
     };
     var out_buf = std.ArrayList(u8).init(std.heap.page_allocator);
     for (res.pixels) |p| {
-        out_buf.appendSlice(&.{p.r, p.g, p.b, p.a}) catch |err| {
-            log(.err,  "failed to decode: {!}", .{err});
-            return std.mem.zeroes(QoiImage);
+        out_buf.appendSlice(&.{ p.r, p.g, p.b, p.a }) catch |err| {
+            log(.err, "failed to decode: {!}", .{err});
+            return null;
         };
     }
 
-    return .{
+    return &.{
         .header = h,
-        .img_buf = out_buf.items.ptr,
-        .img_len = out_buf.items.len,
+        .buf = out_buf.items.ptr,
+        .len = out_buf.items.len,
     };
 }
 
+// credits: https://github.com/ousttrue/zig-opengl-wasm
+/// Writes log to JS console.
 extern fn console_logger(level: c_int, ptr: *const u8, size: c_int) void;
 
 fn extern_write(level: c_int, m: []const u8) error{}!usize {

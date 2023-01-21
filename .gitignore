@@ -2,3 +2,6 @@ zig-cache
 zig-out
 
 /tests/images
+/wasm_sample/qoi.wasm*
+/wasm_sample/node_modules
+/wasm_sample/package-lock.json
