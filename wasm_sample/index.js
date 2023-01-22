@@ -93,24 +93,29 @@ async function onClickDecode() {
     fileInputBuf.set(fileBuf);
 
     // decode the QOI image
-    const ptrRes = instance.exports.decode(fileInputPtr, fileSize);
-    if (ptrRes === 0) { // null pointer
+    const resPtr = instance.exports.decode(fileInputPtr, fileSize);
+    if (resPtr === 0) { // null pointer
       console.error('failed to decode QOI image')
       return;
     }
 
-    // get the result
-    const resBuf = getWasmMemoryDataView(ptrRes, 20);
-    const res = getDecodeResult(resBuf);
-    console.log(res);
+    let res;
+    try {
+      // get the result
+      const resBuf = getWasmMemoryDataView(resPtr, 20);
+      res = getDecodeResult(resBuf);
+      console.log(res);
 
-    // paint the decoded image
-    const img = new ImageData(new Uint8ClampedArray(getWasmMemory().buffer, res.imgPtr, res.imgLen), res.width, res.height);
-    const canvas = document.getElementById("decoded-image")
-    canvas.width = res.width;
-    canvas.height = res.height;
-    canvas.getContext("2d"). putImageData(img, 0, 0);
-    document.getElementById("decode-result").style.display = "block";
+      // paint the decoded image
+      const img = new ImageData(new Uint8ClampedArray(getWasmMemory().buffer, res.imgPtr, res.imgLen), res.width, res.height);
+      const canvas = document.getElementById("decoded-image")
+      canvas.width = res.width;
+      canvas.height = res.height;
+      canvas.getContext("2d"). putImageData(img, 0, 0);
+      document.getElementById("decode-result").style.display = "block";
+    } finally {
+      instance.exports.freeBuffer(res.imgPtr, res.imgLen);
+    }
   } finally {
     instance.exports.freeBuffer(fileInputPtr, fileSize);
   }
@@ -151,20 +156,25 @@ async function onClickEncode() {
   try {
     const imgInputBuf = getWasmMemorySlice(imgInputPtr, imgLen);
     imgInputBuf.set(imgData.data);
-
-    const ptrRes = instance.exports.encode(imgData.width, imgData.height, imgInputPtr, imgLen);
-    if (ptrRes === 0) {
+    
+    const resPtr = instance.exports.encode(imgData.width, imgData.height, imgInputPtr, imgLen);
+    if (resPtr === 0) {
       console.error('failed to encode image to QOI');
       return;
     }
+    
+    let res;
+    try {
+      // get result
+      const resBuf = getWasmMemoryDataView(resPtr, 8);
+      res = getEncodeResult(resBuf);
 
-    // get result
-    const resBuf = getWasmMemoryDataView(ptrRes, 8);
-    const res = getEncodeResult(resBuf);
-
-    // write to file
-    const stem = srcImgFile.name.substring(0, srcImgFile.name.lastIndexOf("."));
-    downloadBinaryFile(getWasmMemorySlice(res.buf, res.len), `${stem}.qoi`);
+      // write to file
+      const stem = srcImgFile.name.substring(0, srcImgFile.name.lastIndexOf("."));
+      downloadBinaryFile(getWasmMemorySlice(res.buf, res.len), `${stem}.qoi`);
+    } finally {
+      instance.exports.freeBuffer(res.buf, res.len);
+    }
   } finally {
     instance.exports.freeBuffer(imgInputPtr, imgLen);
   }
