@@ -75,25 +75,39 @@ const Encoder = struct {
             self.run = 0;
         }
 
-        const chunk = blk: {
-            // match px against seen colors table
-            if (self.seen_colors.matchPut(px)) |idx| {
-                break :blk indexChunk(idx);
+        defer self.px_prev = px;
+
+        // match px against seen colors table
+        if (self.seen_colors.matchPut(px)) |idx| {
+            try writer.writeAll(indexChunk(idx));
+            return;
+        }
+
+        // TODO: To workaround problems with using slice returned from functions in wasm32 build, writing chunks 'directly'. 
+        // Consider to restore original code when these problems are fixed in the future.
+        
+        if (self.px_prev.a == px.a) {
+            // calculate diff and emit diff chunk or an lmua chunk if the diff is small
+            const diff = Rgba.rgbDiff(px, self.px_prev);
+            if (diff.canUseDiffChunk()) {
+                // QOI_OP_DIFF
+                try writer.writeAll(&.{tag_diff | addBias(diff.dr, 2) << 4 | addBias(diff.dg, 2) << 2 | addBias(diff.db, 2)});
+                return;
             }
-
-            if (self.px_prev.a == px.a) {
-                // calculate diff and emit diff chunk or an lmua chunk if the diff is small
-                if (Rgba.rgbDiff(px, self.px_prev).tryIntoQoiChunk()) |chunk| {
-                    break :blk chunk;
-                }
-                break :blk px.intoRgbChunk();
+            if (diff.canUseLumaChunk()) {
+                // QOI_OP_LUMA
+                try writer.writeAll(&.{
+                    tag_luma | addBias(diff.dg, 32),
+                    addBias(diff.dr -% diff.dg, 8) << 4 | addBias(diff.db -% diff.dg, 8),
+                });
+                return;
             }
-
-            break :blk px.intoRgbaChunk();
-        };
-        try writer.writeAll(chunk);
-
-        self.px_prev = px;
+            // QOI_OP_RGB
+            try writer.writeAll(&.{tag_rgb, px.r, px.g, px.b});
+            return;
+        }
+        // QOI_OP_RGBA
+        try writer.writeAll(&.{tag_rgba, px.r, px.g, px.b, px.a});
     }
 
     /// Writes the last run chunk (if needed) and end marker bytes.

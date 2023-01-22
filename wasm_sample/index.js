@@ -92,24 +92,25 @@ async function onClickDecode() {
     const fileInputBuf = getWasmMemorySlice(fileInputPtr, fileSize);
     fileInputBuf.set(fileBuf);
 
-    // decode QOI image
+    // decode the QOI image
     const ptrRes = instance.exports.decode(fileInputPtr, fileSize);
-
     if (ptrRes === 0) { // null pointer
       console.error('failed to decode QOI image')
       return;
     }
 
-    // get result
+    // get the result
     const resBuf = getWasmMemoryDataView(ptrRes, 20);
     const res = getDecodeResult(resBuf);
     console.log(res);
 
+    // paint the decoded image
     const img = new ImageData(new Uint8ClampedArray(getWasmMemory().buffer, res.imgPtr, res.imgLen), res.width, res.height);
     const canvas = document.getElementById("decoded-image")
     canvas.width = res.width;
     canvas.height = res.height;
     canvas.getContext("2d"). putImageData(img, 0, 0);
+    document.getElementById("decode-result").style.display = "block";
   } finally {
     instance.exports.freeBuffer(fileInputPtr, fileSize);
   }
@@ -129,4 +130,117 @@ function getDecodeResult(resBuf) {
     imgPtr: resBuf.getUint32(12, true),
     imgLen: resBuf.getUint32(16, true),
   }
+}
+
+async function onClickEncode() {
+  const files = document.getElementById("enc-file").files;
+  if (files.length === 0) {
+    console.log("no file selected");
+    return;
+  }
+
+  const srcImgFile = files[0];
+  const imgData = await decodeImage(srcImgFile);
+
+  const imgLen = imgData.data.byteLength;
+  const imgInputPtr = instance.exports.allocateBuffer(imgLen);
+  if (imgInputPtr === 0) {
+    return;
+  }
+
+  try {
+    const imgInputBuf = getWasmMemorySlice(imgInputPtr, imgLen);
+    imgInputBuf.set(imgData.data);
+
+    const ptrRes = instance.exports.encode(imgData.width, imgData.height, imgInputPtr, imgLen);
+    if (ptrRes === 0) {
+      console.error('failed to encode image to QOI');
+      return;
+    }
+
+    // get result
+    const resBuf = getWasmMemoryDataView(ptrRes, 8);
+    const res = getEncodeResult(resBuf);
+
+    // write to file
+    const stem = srcImgFile.name.substring(0, srcImgFile.name.lastIndexOf("."));
+    downloadBinaryFile(getWasmMemorySlice(res.buf, res.len), `${stem}.qoi`);
+  } finally {
+    instance.exports.freeBuffer(imgInputPtr, imgLen);
+  }
+}
+
+/**
+ * Extracts result of qoi.encode
+ * 
+ * @param {DataView} resBuf result buffer of decode
+ */
+function getEncodeResult(resBuf) {
+  return {
+    buf: resBuf.getUint32(0, true),
+    len: resBuf.getUint32(4, true),
+  };
+}
+
+/**
+ * Decodes image file and return as an ImageData
+ * 
+ * @param {File} file
+ * @returns {Promise<ImageData>}e
+ */
+async function decodeImage(file) {
+  const readAsDataURL = (f) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        resolve(e.target.result);
+      };
+      reader.onerror = (e) => {
+        reject(e.target.error);
+      };
+      reader.readAsDataURL(f);
+    });
+  };
+
+  const getImageData = (dataUrl) => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const img = new Image();
+      img.addEventListener("load", () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        resolve(ctx.getImageData(0, 0, img.width, img.height));
+      })
+      img.addEventListener("error", (e) => {
+        reject(e);
+      })
+      img.src = dataUrl;
+    })
+  }
+
+  const dataUrl = await readAsDataURL(file);
+  return getImageData(dataUrl);
+}
+
+/**
+ * Downloads the binary data as a file
+ * 
+ * @param {Uint8Array} bytes
+ * @param {string} filename
+ */
+function downloadBinaryFile(bytes, filename) {
+  const blob = new Blob([bytes]);
+  const dataUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  document.body.appendChild(a);
+  a.download = filename;
+  a.href = dataUrl;
+  a.click();
+  a.remove();
+  setTimeout(() => {
+    URL.revokeObjectURL(dataUrl);
+  }, 1e4);
 }

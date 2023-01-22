@@ -28,5 +28,5 @@ zig build wasm -Dtarget=wasm32-freestanding
 cd wasm_sample
 npm run serve
 
-# oopen http://localhost:8080 in your browser and you'll find a sample application!
+# open http://localhost:8080 in your browser and you'll find a sample application!
 ```

@@ -30,7 +30,7 @@ const QoiData = extern struct {
     len: usize, // 4
 };
 
-export fn encode(header: QoiHeaderInfo, img_buf: [*]const u8, img_len: u32) ?*QoiData {
+export fn encode(width: u32, height: u32, img_buf: [*]const u8, img_len: u32) ?*QoiData {
     log(.info, "log from encoder!", .{});
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -38,10 +38,10 @@ export fn encode(header: QoiHeaderInfo, img_buf: [*]const u8, img_len: u32) ?*Qo
     const alloactor = arena.allocator();
 
     const h = qoi.HeaderInfo{
-        .width = header.width,
-        .height = header.height,
-        .channels = header.channels,
-        .colorspace = header.colorspace,
+        .width = width,
+        .height = height,
+        .channels = 4,
+        .colorspace = .sRGB,
     };
 
     var pixels = std.ArrayList(qoi.Rgba).init(alloactor);

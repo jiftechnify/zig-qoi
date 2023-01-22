@@ -1,20 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="index.js"></script>
-  <title>zoi wasm sample</title>
-</head>
-<body>
-  <div>
-  <input type="file" id="qoi-file" name="qoi-file" accept="image/qoi">
-  <button onclick="onClickDecode()">Decode</button>
-  </div>
-  <div>
-    <p>Result:</p>
-    <canvas id="decoded-image" width="256" height="256"></canvas>
-  </div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="index.js"></script>
+    <title>zoi wasm sample</title>
+  </head>
+  <body>
+    <h1>zoi wasm sample</h1>
+    <h2>Decoder</h2>
+    <div>
+      <input type="file" id="qoi-file" name="qoi-file" accept="image/qoi" />
+      <button onclick="onClickDecode()">Decode</button>
+    </div>
+    <div id="decode-result" style="display: none;">
+      <p>Result:</p>
+      <canvas id="decoded-image" width="1" height="1"></canvas>
+    </div>
+    <hr>
+    <h2>Encoder</h2>
+    <div>
+      <input type="file" id="enc-file" name="enc-file" accept="image/*" />
+      <button onclick="onClickEncode()">Encode</button>
+    </div>
+    <canvas id="canvas" />
+  </body>
 </html>
