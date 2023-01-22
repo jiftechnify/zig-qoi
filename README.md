@@ -18,15 +18,10 @@ It uses [zigimg](https://github.com/zigimg/zigimg) for decoding image files.  Yo
 ## Wasm
 This library can be used as a Wasm module. 
 
-Steps to run Wasm sample:
+Steps to run the Wasm sample application:
 
 ```sh
-# build a wasm module
-zig build wasm -Dtarget=wasm32-freestanding
-
-# serve the sample project
 cd wasm_sample
-npm run serve
-
-# open http://localhost:8080 in your browser and you'll find a sample application!
+npm run start
+# open http://localhost:8080 in your browser and you'll find the sample app!
 ```

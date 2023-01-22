@@ -35,13 +35,13 @@ pub fn build(b: *std.build.Builder) void {
 
     const wasm = b.addSharedLibrary("qoi", "qoi_wasm.zig", .unversioned);
     wasm.rdynamic = true;
-    wasm.setOutputDir("wasm_sample");
-    wasm.setTarget(target);
+    wasm.setTarget(std.zig.CrossTarget{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+        .abi = .none,
+    });
     wasm.setBuildMode(mode);
     wasm.install();
-
-    const wasm_step = b.step("wasm", "Build wasm module");
-    wasm_step.dependOn(&wasm.step);
 }
 
 // adds common dependencies to given LibExeObjStep.
