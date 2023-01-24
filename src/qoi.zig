@@ -83,7 +83,7 @@ const Encoder = struct {
             return;
         }
 
-        // TODO: To workaround problems with using slice returned from functions in wasm32 build, writing chunks 'directly'. 
+        // TODO: To workaround problems with using slices returned from functions in wasm32 build, writing chunks 'directly'. 
         // Consider to restore original code when these problems are fixed in the future.
         
         if (self.px_prev.a == px.a) {
