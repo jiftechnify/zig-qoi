@@ -1,5 +1,5 @@
 const std = @import("std");
-const qoi = @import("src/qoi.zig");
+const qoi = @import("./qoi.zig");
 
 /// Allocates a byte buffer on the wasm linear memory and returns its memory offset.
 export fn allocateBuffer(len: usize) ?[*]u8 {

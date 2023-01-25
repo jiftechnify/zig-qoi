@@ -33,7 +33,7 @@ pub fn build(b: *std.build.Builder) void {
     const run_qoiconv_step = b.step("qoiconv", "Run qoiconv");
     run_qoiconv_step.dependOn(&run_qoiconv.step);
 
-    const wasm = b.addSharedLibrary("qoi", "qoi_wasm.zig", .unversioned);
+    const wasm = b.addSharedLibrary("qoi", "src/wasm.zig", .unversioned);
     wasm.rdynamic = true;
     wasm.setTarget(std.zig.CrossTarget{
         .cpu_arch = .wasm32,
