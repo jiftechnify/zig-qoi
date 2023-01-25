@@ -30,24 +30,7 @@ fn convert(allocator: std.mem.Allocator, img_path: []const u8) !void {
         .channels = 4,
         .colorspace = .sRGB,
     };
-    const pixels = try rgbasFromZigImg(allocator, img);
+    var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
 
-    try qoi.encodeToFileByPath(.{ .header = header, .pixels = pixels }, out_file_name);
-}
-
-fn rgbasFromZigImg(allocator: std.mem.Allocator, img: zigimg.Image) ![]qoi.Rgba {
-    var rgbas = std.ArrayList(qoi.Rgba).init(allocator);
-
-    var iter = img.iterator();
-    while (iter.next()) |px| {
-        const rgba32 = px.toRgba32();
-        try rgbas.append(.{
-            .r = rgba32.r,
-            .g = rgba32.g,
-            .b = rgba32.b,
-            .a = rgba32.a,
-        });
-    }
-
-    return rgbas.toOwnedSlice();
+    try qoi.encodeToFileByPath(header, &px_iter, out_file_name);
 }

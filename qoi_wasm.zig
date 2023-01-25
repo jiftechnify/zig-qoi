@@ -33,39 +33,16 @@ const QoiData = extern struct {
 export fn encode(width: u32, height: u32, img_buf: [*]const u8, img_len: u32) ?*QoiData {
     log(.info, "log from encoder!", .{});
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloactor = arena.allocator();
-
-    const h = qoi.HeaderInfo{
+    const header = qoi.HeaderInfo{
         .width = width,
         .height = height,
         .channels = 4,
         .colorspace = .sRGB,
     };
-
-    var pixels = std.ArrayList(qoi.Rgba).init(alloactor);
-    var i: usize = 0;
-    while (i < img_len) : (i += 4) {
-        const px = qoi.Rgba{
-            .r = img_buf[i + 0],
-            .g = img_buf[i + 1],
-            .b = img_buf[i + 2],
-            .a = img_buf[i + 3],
-        };
-        pixels.append(px) catch |err| {
-            log(.err, "failed to encode: {!}", .{err});
-            return null;
-        };
-    }
-
-    const img_data = qoi.ImageData{
-        .header = h,
-        .pixels = pixels.items,
-    };
+    var px_iter = qoi.BinaryPixelIterator.init(img_buf[0..img_len], .rgba);
 
     var out_buf = std.ArrayList(u8).init(std.heap.page_allocator);
-    qoi.encode(img_data, out_buf.writer()) catch |err| {
+    qoi.encode(header, &px_iter, out_buf.writer()) catch |err| {
         log(.err, "failed to encode: {!}", .{err});
         return null;
     };

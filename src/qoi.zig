@@ -3,6 +3,8 @@ const io = std.io;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
+pub usingnamespace @import("./pixel_iter.zig");
+
 const utils = @import("./utils.zig");
 const fitsIn = utils.fitsIn;
 const addBias = utils.addBias;
@@ -20,26 +22,26 @@ const test_allocator = std.testing.allocator;
 /// QOI header info + slice of pixels in RGBA32 format.
 pub const ImageData = struct {
     header: HeaderInfo,
-    pixels: []Rgba, 
+    pixels: []const Rgba,
 };
 
 /// Writes QOI-encoded image data to given `writer`.
-pub fn encode(img_data: ImageData, writer: anytype) !void {
+pub fn encode(header: HeaderInfo, pxIter: anytype, writer: anytype) !void {
     var encoder = Encoder{};
-    try encoder.encode(img_data, writer);
+    try encoder.encode(header, pxIter, writer);
 }
 
 /// Writes QOI-encoded image data to given file.
-pub fn encodeToFile(img_data: ImageData, dst_file: *File) !void {
+pub fn encodeToFile(header: HeaderInfo, pxIter: anytype, dst_file: *File) !void {
     var buffered = io.bufferedWriter(dst_file.writer());
-    try encode(img_data, buffered.writer());
+    try encode(header, pxIter, buffered.writer());
     try buffered.flush();
 }
 
 /// Writes QOI-encoded image data to the file created at `dst_path`.
-pub fn encodeToFileByPath(img_data: ImageData, dst_path: []const u8) !void {
+pub fn encodeToFileByPath(header: HeaderInfo, pxIter: anytype, dst_path: []const u8) !void {
     var f = try generic_path.createFile(dst_path, .{});
-    try encodeToFile(img_data, &f);
+    try encodeToFile(header, pxIter, &f);
 }
 
 /// Encodes image data into QOI format.
@@ -49,10 +51,10 @@ const Encoder = struct {
     run: u8 = 0,
 
     /// Encodes an image (in the form of a pixel array) to writer in QOI format.
-    fn encode(self: *Encoder, img_data: ImageData, writer: anytype) !void {
-        try img_data.header.writeTo(writer);
+    fn encode(self: *Encoder, header: HeaderInfo, pxIter: anytype, writer: anytype) !void {
+        try header.writeTo(writer);
 
-        for (img_data.pixels) |px| {
+        while (pxIter.nextPixel()) |px| {
             try self.encodePixel(px, writer);
         }
         try self.finish(writer);
@@ -83,9 +85,9 @@ const Encoder = struct {
             return;
         }
 
-        // TODO: To workaround problems with using slices returned from functions in wasm32 build, writing chunks 'directly'. 
+        // TODO: To workaround problems with using slices returned from functions in wasm32 build, writing chunks 'directly'.
         // Consider to restore original code when these problems are fixed in the future.
-        
+
         if (self.px_prev.a == px.a) {
             // calculate diff and emit diff chunk or an lmua chunk if the diff is small
             const diff = Rgba.rgbDiff(px, self.px_prev);
@@ -103,11 +105,11 @@ const Encoder = struct {
                 return;
             }
             // QOI_OP_RGB
-            try writer.writeAll(&.{tag_rgb, px.r, px.g, px.b});
+            try writer.writeAll(&.{ tag_rgb, px.r, px.g, px.b });
             return;
         }
         // QOI_OP_RGBA
-        try writer.writeAll(&.{tag_rgba, px.r, px.g, px.b, px.a});
+        try writer.writeAll(&.{ tag_rgba, px.r, px.g, px.b, px.a });
     }
 
     /// Writes the last run chunk (if needed) and end marker bytes.
@@ -169,7 +171,7 @@ const Decoder = struct {
                 self.last_idx_0_px = null;
             }
 
-            const px_and_run: ?struct{ px: Rgba, run: u8 } = blk: {
+            const px_and_run: ?struct { px: Rgba, run: u8 } = blk: {
                 switch (b) {
                     tag_rgb => {
                         const rgb = try reader.readBytesNoEof(3);
@@ -218,7 +220,7 @@ const Decoder = struct {
 
         // so far, 2 consecutive zero bytes detecetd; match next 6 bytes against end marker pattern
         const end = try reader.readBytesNoEof(6);
-        if (!std.mem.eql(u8, &end, &.{0, 0, 0, 0, 0, 1})) {
+        if (!std.mem.eql(u8, &end, &.{ 0, 0, 0, 0, 0, 1 })) {
             return error.InvalidQoiFormat;
         }
 
@@ -252,7 +254,7 @@ const end_marker: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
 /// Information embeded in the QOI header.
 pub const HeaderInfo = struct {
-    width: u32, 
+    width: u32,
     height: u32,
     channels: u8, // number of color channels; 3 = RGB, 4 = RGBA
     colorspace: Colorspace,

@@ -16,18 +16,19 @@ fn headerToQoiDesc(header: qoi.HeaderInfo) c.qoi_desc {
     };
 }
 
-fn rgbasToBin(alloc: Allocator, pixels: []const qoi.Rgba) !std.ArrayList(u8) {
+fn rgbasToBin(alloc: Allocator, px_iter: anytype) !std.ArrayList(u8) {
     var buf = std.ArrayList(u8).init(alloc);
-    for (pixels) |p| {
-        try buf.appendSlice(&.{ p.r, p.g, p.b, p.a });
+    
+    while (px_iter.nextPixel()) |px| {
+        try buf.appendSlice(&.{ px.r, px.g, px.b, px.a });
     }
     return buf;
 }
 
-pub fn encode(allocator: Allocator, img_data: qoi.ImageData, writer: anytype) !void {
-    const desc = headerToQoiDesc(img_data.header);
+pub fn encode(allocator: Allocator, header: qoi.HeaderInfo, px_iter: anytype, writer: anytype) !void {
+    const desc = headerToQoiDesc(header);
 
-    const image_bin = try rgbasToBin(allocator, img_data.pixels);
+    const image_bin = try rgbasToBin(allocator, px_iter);
     defer image_bin.deinit();
 
     var n: c_int = 0;

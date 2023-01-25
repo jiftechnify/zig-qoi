@@ -43,10 +43,10 @@ fn testDecode(qoi_file: std.fs.File) !void {
 
     var buffered = std.io.bufferedReader(qoi_file.reader());
 
-    const res_c = try c_qoi.decode(alloc, buffered.reader(), try qoi_file.getEndPos());
+    var res_c = try c_qoi.decode(alloc, buffered.reader(), try qoi_file.getEndPos());
 
     try qoi_file.seekTo(0);
-    const res_zig = try qoi.decode(alloc, buffered.reader());
+    var res_zig = try qoi.decode(alloc, buffered.reader());
 
     try expectEqual(res_zig.header, res_c.header);
     try expectEqual(res_zig.pixels.len, res_c.pixels.len);

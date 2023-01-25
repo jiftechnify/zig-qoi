@@ -41,19 +41,7 @@ fn testEncode(png_file: *std.fs.File) !void {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const png_img = try readPngImage(alloc, png_file);
-
-    var buf_c = std.ArrayList(u8).init(alloc);
-    try c_qoi.encode(alloc, png_img, buf_c.writer());
-
-    var buf_zig = std.ArrayList(u8).init(alloc);
-    try qoi.encode(png_img, buf_zig.writer());
-
-    try std.testing.expectEqualSlices(u8, buf_c.items, buf_zig.items);
-}
-
-fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !qoi.ImageData {
-    var img = try Image.fromFile(alloc, png_file);
+    const img = try Image.fromFile(alloc, png_file);
 
     const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
@@ -62,19 +50,15 @@ fn readPngImage(alloc: std.mem.Allocator, png_file: *std.fs.File) !qoi.ImageData
         .colorspace = qoi.Colorspace.sRGB,
     };
 
-    var list = std.ArrayList(qoi.Rgba).init(alloc);
-    var img_iter = img.iterator();
-    while (img_iter.next()) |px| {
-        const rgba32 = px.toRgba32();
-        try list.append(.{
-            .r = rgba32.r,
-            .g = rgba32.g,
-            .b = rgba32.b,
-            .a = rgba32.a,
-        });
-    }
+    var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
+    var buf_c = std.ArrayList(u8).init(alloc);
+    try c_qoi.encode(alloc, header, &px_iter, buf_c.writer());
 
-    return .{ .header = header, .pixels = try list.toOwnedSlice() };
+    px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
+    var buf_zig = std.ArrayList(u8).init(alloc);
+    try qoi.encode(header, &px_iter, buf_zig.writer());
+
+    try std.testing.expectEqualSlices(u8, buf_c.items, buf_zig.items);
 }
 
 const testcard_path = "tests/images/testcard_rgba.png";
@@ -89,11 +73,19 @@ test "encodeToFile" {
     var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
-    const img_data = try readPngImage(alloc, &f);
+
+    const img = try Image.fromFile(alloc, &f);
+    const header = qoi.HeaderInfo{
+        .width = @intCast(u32, img.width),
+        .height = @intCast(u32, img.height),
+        .channels = 4,
+        .colorspace = qoi.Colorspace.sRGB,
+    };
+    var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
 
     var out_f = try std.fs.cwd().createFile(test_out_path, .{});
 
-    try qoi.encodeToFile(img_data, &out_f);
+    try qoi.encodeToFile(header, &px_iter, &out_f);
 
     std.fs.cwd().deleteFile(test_out_path) catch |err| {
         std.debug.print("failed to delete test output file: {!}", .{err});
@@ -109,9 +101,17 @@ test "encodeToFileByPath" {
     var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
-    const img_data = try readPngImage(alloc, &f);
 
-    _ = try qoi.encodeToFileByPath(img_data, test_out_path);
+    const img = try Image.fromFile(alloc, &f);
+    const header = qoi.HeaderInfo{
+        .width = @intCast(u32, img.width),
+        .height = @intCast(u32, img.height),
+        .channels = 4,
+        .colorspace = qoi.Colorspace.sRGB,
+    };
+    var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
+
+    _ = try qoi.encodeToFileByPath(header, &px_iter, test_out_path);
 
     std.fs.cwd().deleteFile(test_out_path) catch |err| {
         std.debug.print("failed to delete test output file: {!}", .{err});
