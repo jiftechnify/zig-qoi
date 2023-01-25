@@ -19,29 +19,23 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
-/// QOI header info + slice of pixels in RGBA32 format.
-pub const ImageData = struct {
-    header: HeaderInfo,
-    pixels: []const Rgba,
-};
-
 /// Writes QOI-encoded image data to given `writer`.
-pub fn encode(header: HeaderInfo, pxIter: anytype, writer: anytype) !void {
+pub fn encode(header: HeaderInfo, px_iter: anytype, writer: anytype) !void {
     var encoder = Encoder{};
-    try encoder.encode(header, pxIter, writer);
+    try encoder.encode(header, px_iter, writer);
 }
 
 /// Writes QOI-encoded image data to given file.
-pub fn encodeToFile(header: HeaderInfo, pxIter: anytype, dst_file: *File) !void {
+pub fn encodeToFile(header: HeaderInfo, px_iter: anytype, dst_file: *File) !void {
     var buffered = io.bufferedWriter(dst_file.writer());
-    try encode(header, pxIter, buffered.writer());
+    try encode(header, px_iter, buffered.writer());
     try buffered.flush();
 }
 
 /// Writes QOI-encoded image data to the file created at `dst_path`.
-pub fn encodeToFileByPath(header: HeaderInfo, pxIter: anytype, dst_path: []const u8) !void {
+pub fn encodeToFileByPath(header: HeaderInfo, px_iter: anytype, dst_path: []const u8) !void {
     var f = try generic_path.createFile(dst_path, .{});
-    try encodeToFile(header, pxIter, &f);
+    try encodeToFile(header, px_iter, &f);
 }
 
 /// Encodes image data into QOI format.
@@ -51,10 +45,10 @@ const Encoder = struct {
     run: u8 = 0,
 
     /// Encodes an image (in the form of a pixel array) to writer in QOI format.
-    fn encode(self: *Encoder, header: HeaderInfo, pxIter: anytype, writer: anytype) !void {
+    fn encode(self: *Encoder, header: HeaderInfo, px_iter: anytype, writer: anytype) !void {
         try header.writeTo(writer);
 
-        while (pxIter.nextPixel()) |px| {
+        while (px_iter.nextPixel()) |px| {
             try self.encodePixel(px, writer);
         }
         try self.finish(writer);
@@ -123,25 +117,141 @@ const Encoder = struct {
     }
 };
 
-/// Reads QOI-encoded image data from given `reader`.
-/// Freeing `pixels` in the result is caller's responsibility.
-pub fn decode(allocator: Allocator, reader: anytype) !ImageData {
-    var decorder = Decoder{};
-    return try decorder.decode(allocator, reader);
+/// QOI header info + decoded image in the form of iterator of pixels in RGBA32 format.
+pub fn DecodeResult(comptime Reader: type) type {
+    return struct {
+        header: HeaderInfo,
+        px_iter: DecodingPixelIterator(Reader),
+    };
 }
 
-/// Reads QOI-encoded image data from given file.
-/// Freeing `pixels` in the result is caller's responsibility.
-pub fn decodeFromFile(allocator: Allocator, src_file: File) !ImageData {
+/// Decodes QOI-encoded image data from given `reader`.
+pub fn decode(reader: anytype) !DecodeResult(@TypeOf(reader)) {
+    const header = try HeaderInfo.readFrom(reader);
+    const px_iter = decodingPixelIterator(reader);
+
+    return .{ .header = header, .px_iter = px_iter };
+}
+
+const BufFileReader = std.io.BufferedReader(4096, std.fs.File.Reader).Reader;
+
+/// Decodes QOI-encoded image data from given file.
+pub fn decodeFromFile(src_file: File) !DecodeResult(BufFileReader) {
     var buffered = io.bufferedReader(src_file.reader());
-    return try decode(allocator, buffered.reader());
+    return try decode(buffered.reader());
 }
 
-/// Reads QOI-encoded image data from the file at `src_path`.
-/// Freeing `pixels` in the result is caller's responsibility.
-pub fn decodeFromFileByPath(allocator: Allocator, src_path: []const u8) !ImageData {
+/// Decodes QOI-encoded image data from the file at `src_path`.
+pub fn decodeFromFileByPath(src_path: []const u8) !DecodeResult(BufFileReader) {
     const f = try generic_path.openFile(src_path, .{});
-    return try decodeFromFile(allocator, f);
+    return try decodeFromFile(f);
+}
+
+fn decodingPixelIterator(reader: anytype) DecodingPixelIterator(@TypeOf(reader)) {
+    return .{ .reader = reader };
+}
+
+fn DecodingPixelIterator(comptime Reader: type) type {
+    return struct {
+        reader: Reader,
+
+        px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        seen_colors: SeenColorsTable = .{},
+
+        remaining_run: u8 = 0,
+
+        last_idx_0_px: ?Rgba = null,
+        pending_byte: ?u8 = null,
+
+        finished: bool = false,
+
+        const Self = @This();
+
+        pub fn nextPixel(self: *Self) !?Rgba {
+            if (self.finished) return null;
+
+            if (self.remaining_run > 0) {
+                self.remaining_run -= 1;
+                return self.px_prev;
+            }
+
+            const b = if (self.pending_byte) |pb| blk: {
+                self.pending_byte = null;
+                break :blk pb;
+            } else try self.reader.readByte();
+
+            if (self.last_idx_0_px) |px| {
+                if (b == 0) {
+                    // previous byte was first byte of end marker!
+                    self.finished = true;
+
+                    // so far, 2 consecutive zero bytes detecetd; match next 6 bytes against end marker pattern
+                    const end = try self.reader.readBytesNoEof(6);
+                    if (!std.mem.eql(u8, &end, &.{ 0, 0, 0, 0, 0, 1 })) {
+                        return error.InvalidQoiFormat;
+                    }
+                    return null;
+                }
+
+                // previous byte was QOI_OP_INDEX(0)
+                self.pending_byte = b;
+                self.px_prev = px;
+                self.last_idx_0_px = null;
+                return px;
+            }
+
+            const px_and_run: ?struct { px: Rgba, run: u8 } = blk: {
+                switch (b) {
+                    tag_rgb => {
+                        const rgb = try self.reader.readBytesNoEof(3);
+                        break :blk .{ .px = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = self.px_prev.a }, .run = 1 };
+                    },
+                    tag_rgba => {
+                        const rgba = try self.reader.readBytesNoEof(4);
+                        break :blk .{ .px = .{ .r = rgba[0], .g = rgba[1], .b = rgba[2], .a = rgba[3] }, .run = 1 };
+                    },
+                    else => {},
+                }
+                // 8-bit tags didn't match; check 2-bit tags
+                const tag2 = b & 0b11_000000;
+                switch (tag2) {
+                    tag_index => {
+                        if (b == 0) { // maybe first byte of end marker; defer appending pixel
+                            self.last_idx_0_px = self.seen_colors.get(0);
+                            break :blk null;
+                        }
+                        break :blk .{ .px = self.seen_colors.get(b), .run = 1 };
+                    },
+                    tag_diff => {
+                        const diff = RgbDiff.fromDiffChunk(b);
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
+                    },
+                    tag_luma => {
+                        const b1 = try self.reader.readByte();
+                        const diff = RgbDiff.fromLumaChunk(b, b1);
+                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
+                    },
+                    tag_run => {
+                        const run = (b & 0b00_111111) + 1;
+                        break :blk .{ .px = self.px_prev, .run = run };
+                    },
+                    else => unreachable,
+                }
+            };
+
+            if (px_and_run) |pxr| {
+                self.px_prev = pxr.px;
+                if (pxr.run > 1) {
+                    self.remaining_run = pxr.run - 1;
+                }
+                _ = self.seen_colors.matchPut(pxr.px);
+
+                return pxr.px;
+            }
+            // if b == 0
+            return self.nextPixel();
+        }
+    };
 }
 
 const Decoder = struct {
@@ -152,7 +262,7 @@ const Decoder = struct {
 
     /// Reads and decodes an QOI image from `reader`.
     /// Freeing `pixels` in the output is caller's responsibility.
-    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !ImageData {
+    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !DecodeResult {
         const header = try HeaderInfo.readFrom(reader);
 
         var list_px = std.ArrayList(Rgba).init(allocator);

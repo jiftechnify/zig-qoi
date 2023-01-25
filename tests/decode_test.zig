@@ -43,41 +43,39 @@ fn testDecode(qoi_file: std.fs.File) !void {
 
     var buffered = std.io.bufferedReader(qoi_file.reader());
 
-    var res_c = try c_qoi.decode(alloc, buffered.reader(), try qoi_file.getEndPos());
+    const res_c = try c_qoi.decode(alloc, buffered.reader(), try qoi_file.getEndPos());
 
     try qoi_file.seekTo(0);
-    var res_zig = try qoi.decode(alloc, buffered.reader());
+    const res_zig = try qoi.decode(buffered.reader());
+    var res_zig_iter = res_zig.px_iter;
 
-    try expectEqual(res_zig.header, res_c.header);
-    try expectEqual(res_zig.pixels.len, res_c.pixels.len);
+    var res_zig_pxs = std.ArrayList(qoi.Rgba).init(alloc);
+    while (try res_zig_iter.nextPixel()) |px| {
+        try res_zig_pxs.append(px);
+    }
+
+    try expectEqual(res_c.header, res_zig.header);
+    try expectEqual(res_c.pixels.len, res_zig_pxs.items.len);
     var i: usize = 0;
-    while (i < res_zig.pixels.len) : (i += 1) {
-        try expectEqual(res_zig.pixels[i], res_c.pixels[i]);
+    while (i < res_zig_pxs.items.len) : (i += 1) {
+        try expectEqual(res_c.pixels[i], res_zig_pxs.items[i]);
     }
 }
 
 const testcard_path = "tests/images/testcard_rgba.qoi";
 
 test "decodeFromFile" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
     // skip test if the test image does not exist.
     const f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
-    _ = try qoi.decodeFromFile(alloc, f);
+    _ = try qoi.decodeFromFile(f);
 }
 
 test "decodeFromFileByPath" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
     // skip test if the test image does not exist.
     std.fs.cwd().access(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
-    _ = try qoi.decodeFromFileByPath(alloc, testcard_path);
+    _ = try qoi.decodeFromFileByPath(testcard_path);
 }

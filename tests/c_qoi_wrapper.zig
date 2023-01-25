@@ -76,7 +76,7 @@ fn binToRgbas(alloc: Allocator, bin: []const u8, channels: u8) ![]qoi.Rgba {
 }
 
 /// Freeing `pixels` in the output is caller's responsbility.
-pub fn decode(allocator: Allocator, reader: anytype, size: usize) !qoi.ImageData {
+pub fn decode(allocator: Allocator, reader: anytype, size: usize) !struct { header: qoi.HeaderInfo, pixels: []qoi.Rgba } {
     const data = try reader.readAllAlloc(allocator, size);
     defer allocator.free(data);
 

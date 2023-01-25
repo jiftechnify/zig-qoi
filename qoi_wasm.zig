@@ -65,10 +65,9 @@ export fn decode(buf: [*]const u8, len: usize) ?*ImageDataWithQoiHeader {
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
 
     var fbs = std.io.fixedBufferStream(buf[0..len]);
-    const res = qoi.decode(allocator, fbs.reader()) catch |err| {
+    const res = qoi.decode(fbs.reader()) catch |err| {
         log(.err, "failed to decode: {!}", .{err});
         return null;
     };
@@ -79,19 +78,26 @@ export fn decode(buf: [*]const u8, len: usize) ?*ImageDataWithQoiHeader {
         .channels = res.header.channels,
         .colorspace = res.header.colorspace,
     };
-    var out_buf = std.ArrayList(u8).init(std.heap.page_allocator);
-    for (res.pixels) |p| {
-        out_buf.appendSlice(&.{ p.r, p.g, p.b, p.a }) catch |err| {
-            log(.err, "failed to decode: {!}", .{err});
-            return null;
-        };
-    }
+
+    var px_iter = res.px_iter;
+    const img_buf = collectDecodedImage(&px_iter) catch |err| {
+        log(.err, "failed to decode: {!}", .{err});
+        return null;
+    };
 
     return &.{
         .header = h,
-        .buf = out_buf.items.ptr,
-        .len = out_buf.items.len,
+        .buf = img_buf.items.ptr,
+        .len = img_buf.items.len,
     };
+}
+
+fn collectDecodedImage(px_iter: anytype) !std.ArrayList(u8) {
+    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    while (try px_iter.nextPixel()) |px| {
+        try buf.appendSlice(&.{ px.r, px.g, px.b, px.a });
+    }
+    return buf;
 }
 
 // credits: https://github.com/ousttrue/zig-opengl-wasm
