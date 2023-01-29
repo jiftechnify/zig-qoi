@@ -39,7 +39,7 @@ export fn encode(width: u32, height: u32, img_buf: [*]const u8, img_len: u32) ?*
         .channels = 4,
         .colorspace = .sRGB,
     };
-    var px_iter = qoi.BinaryPixelIterator.init(img_buf[0..img_len], .rgba);
+    var px_iter = qoi.ImageBufferPixelIterator.init(img_buf[0..img_len], .rgba);
 
     var out_buf = std.ArrayList(u8).init(std.heap.page_allocator);
     qoi.encode(header, &px_iter, out_buf.writer()) catch |err| {

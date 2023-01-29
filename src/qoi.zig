@@ -20,12 +20,20 @@ const expectError = std.testing.expectError;
 const test_allocator = std.testing.allocator;
 
 /// Writes QOI-encoded image data to given `writer`.
+///
+/// `px_iter` must be an 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`, 
+/// every call to it returns a next pixel (`Rgba`) in an image and `null` if it reached the end of image data.
+/// Use `qoi.XxxPixelIterator.init()` series constructors to get 'iterator of pixels' from an image data in various forms.
 pub fn encode(header: HeaderInfo, px_iter: anytype, writer: anytype) !void {
     var encoder = Encoder{};
     try encoder.encode(header, px_iter, writer);
 }
 
 /// Writes QOI-encoded image data to given file.
+///
+/// `px_iter` must be an 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`,
+/// every call to it returns a next pixel (`Rgba`) in an image and `null` if it reached the end of image data.
+/// Use `qoi.XxxPixelIterator.init()` series constructors to get 'iterator of pixels' from an image data in various forms.
 pub fn encodeToFile(header: HeaderInfo, px_iter: anytype, dst_file: *File) !void {
     var buffered = io.bufferedWriter(dst_file.writer());
     try encode(header, px_iter, buffered.writer());
@@ -33,6 +41,10 @@ pub fn encodeToFile(header: HeaderInfo, px_iter: anytype, dst_file: *File) !void
 }
 
 /// Writes QOI-encoded image data to the file created at `dst_path`.
+///
+/// `px_iter` must be an 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`,
+/// every call to it returns a next pixel (`Rgba`) in an image and `null` if it reached the end of image data.
+/// Use `qoi.XxxPixelIterator.init()` series constructors to get 'iterator of pixels' from an image data in various forms.
 pub fn encodeToFileByPath(header: HeaderInfo, px_iter: anytype, dst_path: []const u8) !void {
     var f = try generic_path.createFile(dst_path, .{});
     try encodeToFile(header, px_iter, &f);
@@ -45,6 +57,8 @@ const Encoder = struct {
     run: u8 = 0,
 
     /// Encodes an image (in the form of a pixel array) to writer in QOI format.
+    ///
+    /// `px_iter` must be a value of 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`.
     fn encode(self: *Encoder, header: HeaderInfo, px_iter: anytype, writer: anytype) !void {
         try header.writeTo(writer);
 
@@ -253,98 +267,6 @@ fn DecodingPixelIterator(comptime Reader: type) type {
         }
     };
 }
-
-const Decoder = struct {
-    px_prev: Rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-    seen_colors: SeenColorsTable = .{},
-
-    last_idx_0_px: ?Rgba = null,
-
-    /// Reads and decodes an QOI image from `reader`.
-    /// Freeing `pixels` in the output is caller's responsibility.
-    fn decode(self: *Decoder, allocator: std.mem.Allocator, reader: anytype) !DecodeResult {
-        const header = try HeaderInfo.readFrom(reader);
-
-        var list_px = std.ArrayList(Rgba).init(allocator);
-        while (true) {
-            const b = try reader.readByte();
-
-            if (self.last_idx_0_px) |px| {
-                if (b == 0) {
-                    // previous byte was first byte of end marker!
-                    break;
-                }
-
-                // previous byte was QOI_OP_INDEX(0)
-                try list_px.append(px);
-                self.px_prev = px;
-                self.last_idx_0_px = null;
-            }
-
-            const px_and_run: ?struct { px: Rgba, run: u8 } = blk: {
-                switch (b) {
-                    tag_rgb => {
-                        const rgb = try reader.readBytesNoEof(3);
-                        break :blk .{ .px = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = self.px_prev.a }, .run = 1 };
-                    },
-                    tag_rgba => {
-                        const rgba = try reader.readBytesNoEof(4);
-                        break :blk .{ .px = .{ .r = rgba[0], .g = rgba[1], .b = rgba[2], .a = rgba[3] }, .run = 1 };
-                    },
-                    else => {},
-                }
-                // 8-bit tags didn't match; check 2-bit tags
-                const tag2 = b & 0b11_000000;
-                switch (tag2) {
-                    tag_index => {
-                        if (b == 0) { // maybe first byte of end marker; defer appending pixel
-                            self.last_idx_0_px = self.seen_colors.get(0);
-                            break :blk null;
-                        }
-                        break :blk .{ .px = self.seen_colors.get(b), .run = 1 };
-                    },
-                    tag_diff => {
-                        const diff = RgbDiff.fromDiffChunk(b);
-                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
-                    },
-                    tag_luma => {
-                        const b1 = try reader.readByte();
-                        const diff = RgbDiff.fromLumaChunk(b, b1);
-                        break :blk .{ .px = self.px_prev.applyRgbDiff(diff), .run = 1 };
-                    },
-                    tag_run => {
-                        const run = (b & 0b00_111111) + 1;
-                        break :blk .{ .px = self.px_prev, .run = run };
-                    },
-                    else => unreachable,
-                }
-            };
-
-            if (px_and_run) |pxr| {
-                try list_px.appendNTimes(pxr.px, pxr.run);
-
-                self.px_prev = pxr.px;
-                _ = self.seen_colors.matchPut(pxr.px);
-            }
-        }
-
-        // so far, 2 consecutive zero bytes detecetd; match next 6 bytes against end marker pattern
-        const end = try reader.readBytesNoEof(6);
-        if (!std.mem.eql(u8, &end, &.{ 0, 0, 0, 0, 0, 1 })) {
-            return error.InvalidQoiFormat;
-        }
-
-        // check if there is no conflict between #pixels and dimension of the image
-        if (list_px.items.len != header.width * header.height) {
-            return error.InvalidQoiFormat;
-        }
-
-        return .{
-            .header = header,
-            .pixels = try list_px.toOwnedSlice(),
-        };
-    }
-};
 
 // magic bytes "qoif"
 const qoi_header_magic: [4]u8 = .{ 'q', 'o', 'i', 'f' };

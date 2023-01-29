@@ -2,7 +2,8 @@ const std = @import("std");
 const zigimg = @import("zigimg");
 const Rgba = @import("qoi.zig").Rgba;
 
-pub const IdentityPixelIterator = struct {
+/// PixelIterator which just wraps slice of `Rgba`s.
+pub const RgbaSlicePixelIterator = struct {
     src: []const Rgba,
     i: usize = 0,
 
@@ -22,31 +23,13 @@ pub const IdentityPixelIterator = struct {
     }
 };
 
-fn genPixelRgb(src: []const u8, i: usize) ?Rgba {
-    if (i * 3 >= src.len) {
-        return null;
-    }
-    return Rgba{
-        .r = src[i * 3],
-        .g = src[i * 3 + 1],
-        .b = src[i * 3 + 2],
-        .a = 255,
-    };
-}
-fn genPixelRgba(src: []const u8, i: usize) ?Rgba {
-    if (i * 4 >= src.len) {
-        return null;
-    }
-    return Rgba{
-        .r = src[i * 4],
-        .g = src[i * 4 + 1],
-        .b = src[i * 4 + 2],
-        .a = src[i * 4 + 3],
-    };
-}
-
-pub const BinaryPixelIterator = struct {
-    const Mode = enum {
+/// PixelIteartor which generates `Rgba`s by iterating over an 'image buffer' (a byte buffer of pixel data in the specified pixel format).
+///
+/// Supported pixel formats:
+/// - `.rgb`: RGB24
+/// - `.rgba`: RGBA32
+pub const ImageBufferPixelIterator = struct {
+    const PixelFormat = enum {
         rgb,
         rgba,
     };
@@ -57,8 +40,32 @@ pub const BinaryPixelIterator = struct {
 
     const Self = @This();
 
-    pub fn init(src: []const u8, mode: Self.Mode) Self {
-        return switch (mode) {
+    fn genPixelRgb(src: []const u8, i: usize) ?Rgba {
+        if (i * 3 >= src.len) {
+            return null;
+        }
+        return Rgba{
+            .r = src[i * 3],
+            .g = src[i * 3 + 1],
+            .b = src[i * 3 + 2],
+            .a = 255,
+        };
+    }
+    
+    fn genPixelRgba(src: []const u8, i: usize) ?Rgba {
+        if (i * 4 >= src.len) {
+            return null;
+        }
+        return Rgba{
+            .r = src[i * 4],
+            .g = src[i * 4 + 1],
+            .b = src[i * 4 + 2],
+            .a = src[i * 4 + 3],
+        };
+    }
+
+    pub fn init(src: []const u8, px_fmt: Self.PixelFormat) Self {
+        return switch (px_fmt) {
             .rgb => .{ .src = src, .genPixel = genPixelRgb },
             .rgba => .{ .src = src, .genPixel = genPixelRgba },
         };
@@ -71,6 +78,7 @@ pub const BinaryPixelIterator = struct {
     }
 };
 
+/// PixelIterator which wraps zigimg's `PixelStorageIterator` and generates `Rgba`s from it.
 pub const ZigimgPixelIterator = struct {
     inner: zigimg.color.PixelStorageIterator,
 
