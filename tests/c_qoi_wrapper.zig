@@ -18,7 +18,7 @@ fn headerToQoiDesc(header: qoi.HeaderInfo) c.qoi_desc {
 
 fn rgbasToBin(alloc: Allocator, px_iter: anytype) !std.ArrayList(u8) {
     var buf = std.ArrayList(u8).init(alloc);
-    
+
     while (px_iter.nextPixel()) |px| {
         try buf.appendSlice(&.{ px.r, px.g, px.b, px.a });
     }
