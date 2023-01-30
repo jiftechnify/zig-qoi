@@ -1,0 +1,29 @@
+name: CI on PR
+
+on: pull_request
+
+jobs:
+  ci:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: master
+
+      - name: Lint
+        run: zig fmt --check --ast-check src/
+
+      - name: Download & extract test images
+        run: |
+          wget https://qoiformat.org/qoi_test_images.zip
+          mkdir -p tests/images && unzip qoi_test_images.zip && mv qoi_test_images/* tests/images && rm -rf qoi_test_images qoi_test_images.zip
+        shell: bash
+
+      - name: Test
+        run: zig build test

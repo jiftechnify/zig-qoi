@@ -100,7 +100,7 @@ fn collectDecodedImage(px_iter: anytype) !std.ArrayList(u8) {
     return buf;
 }
 
-// credits: https://github.com/ousttrue/zig-opengl-wasm
+// credits to: https://github.com/ousttrue/zig-opengl-wasm
 /// Writes log to JS console.
 extern fn console_logger(level: c_int, ptr: *const u8, size: c_int) void;
 
