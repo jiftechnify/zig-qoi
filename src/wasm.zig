@@ -3,7 +3,7 @@ const qoi = @import("./qoi.zig");
 
 /// Allocates a byte buffer on the wasm linear memory and returns its memory offset.
 export fn allocateBuffer(len: usize) ?[*]u8 {
-    log(.info, "allocateBuffer len: {}", .{ len });
+    log(.info, "allocateBuffer len: {}", .{len});
     var buf = std.heap.page_allocator.alloc(u8, len) catch |err| {
         log(.err, "failed to allocate buffer: {!}", .{err});
         return null;

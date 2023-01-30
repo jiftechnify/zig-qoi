@@ -21,7 +21,7 @@ const test_allocator = std.testing.allocator;
 
 /// Writes QOI-encoded image data to given `writer`.
 ///
-/// `px_iter` must be an 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`, 
+/// `px_iter` must be an 'iterator of pixels', which has a method named `nextPixel` whose return type is `?Rgba`,
 /// every call to it returns a next pixel (`Rgba`) in an image and `null` if it reached the end of image data.
 /// Use `qoi.XxxPixelIterator.init()` series constructors to get 'iterator of pixels' from an image data in various forms.
 pub fn encode(header: HeaderInfo, px_iter: anytype, writer: anytype) !void {
