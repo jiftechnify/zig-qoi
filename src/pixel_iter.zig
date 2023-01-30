@@ -51,7 +51,7 @@ pub const ImageBufferPixelIterator = struct {
             .a = 255,
         };
     }
-    
+
     fn genPixelRgba(src: []const u8, i: usize) ?Rgba {
         if (i * 4 >= src.len) {
             return null;

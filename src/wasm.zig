@@ -3,7 +3,7 @@ const qoi = @import("./qoi.zig");
 
 /// Allocates a byte buffer on the wasm linear memory and returns its memory offset.
 export fn allocateBuffer(len: usize) ?[*]u8 {
-    log(.info, "allocateBuffer len: {}", .{ len });
+    log(.info, "allocateBuffer len: {}", .{len});
     var buf = std.heap.page_allocator.alloc(u8, len) catch |err| {
         log(.err, "failed to allocate buffer: {!}", .{err});
         return null;
@@ -100,7 +100,7 @@ fn collectDecodedImage(px_iter: anytype) !std.ArrayList(u8) {
     return buf;
 }
 
-// credits: https://github.com/ousttrue/zig-opengl-wasm
+// credits to: https://github.com/ousttrue/zig-opengl-wasm
 /// Writes log to JS console.
 extern fn console_logger(level: c_int, ptr: *const u8, size: c_int) void;
 

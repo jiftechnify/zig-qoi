@@ -12,7 +12,7 @@ let instance = undefined;
   ).instance;
 })();
 
-// credits: https://github.com/ousttrue/zig-opengl-wasm
+// credits to: https://github.com/ousttrue/zig-opengl-wasm
 const getWasmMemory = () => new DataView(instance.exports.memory.buffer);
 const getWasmMemorySlice = (ptr, len) => new Uint8Array(getWasmMemory().buffer, ptr, len);
 const getWasmMemoryDataView = (ptr, len) => new DataView(getWasmMemory().buffer, ptr, len);
