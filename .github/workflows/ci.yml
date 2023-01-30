@@ -23,8 +23,9 @@ jobs:
 
       - name: Download & extract test images
         run: |
-          # cf. https://github.com/agda/agda/issues/4691
+          set -x
           if [ "${{ runner.os }}" = "Windows" ]; then
+            # cf. https://github.com/agda/agda/issues/4691
             "C:/msys64/usr/bin/wget.exe" https://qoiformat.org/qoi_test_images.zip
           else
             wget https://qoiformat.org/qoi_test_images.zip
