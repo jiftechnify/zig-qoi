@@ -21,17 +21,19 @@ jobs:
       - name: Lint
         run: zig fmt --check --ast-check src/
 
+      - name: Download test images archive
+        uses: suisei-cn/actions-download-file@v1.3.0
+        id: dl-test-images
+        with:
+          url: https://qoiformat.org/qoi_test_images.zip
+          target: "."
+
       - name: Download & extract test images
         run: |
-          set -x
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            # cf. https://github.com/agda/agda/issues/4691
-            "C:/msys64/usr/bin/wget.exe" https://qoiformat.org/qoi_test_images.zip
-          else
-            wget https://qoiformat.org/qoi_test_images.zip
-          fi
-          mkdir -p tests/images && unzip qoi_test_images.zip && mv qoi_test_images/* tests/images && rm -rf qoi_test_images qoi_test_images.zip
+          mkdir -p tests/images && unzip $TEST_IMGS_ZIP && mv qoi_test_images/* tests/images && rm -rf qoi_test_images $TEST_IMGS_ZIP
         shell: bash
+        env:
+          TEST_IMGS_ZIP: ${{ steps.dl-test-images.outputs.filename }}
 
       - name: Test
         run: zig build test
