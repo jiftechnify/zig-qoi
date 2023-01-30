@@ -70,11 +70,12 @@ test "encodeToFile" {
     const alloc = arena.allocator();
 
     // skip test if the test image does not exist.
-    var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
+    var src_f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
+    defer src_f.close();
 
-    const img = try Image.fromFile(alloc, &f);
+    const img = try Image.fromFile(alloc, &src_f);
     const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
         .height = @intCast(u32, img.height),
@@ -83,13 +84,15 @@ test "encodeToFile" {
     };
     var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
 
-    var out_f = try std.fs.cwd().createFile(test_out_path, .{});
+    var dst_f = try std.fs.cwd().createFile(test_out_path, .{});
+    defer {
+        dst_f.close();
+        std.fs.cwd().deleteFile(test_out_path) catch |err| {
+            std.debug.print("failed to delete test output file: {!}", .{err});
+        };
+    }
 
-    try qoi.encodeToFile(header, &px_iter, &out_f);
-
-    std.fs.cwd().deleteFile(test_out_path) catch |err| {
-        std.debug.print("failed to delete test output file: {!}", .{err});
-    };
+    try qoi.encodeToFile(header, &px_iter, &dst_f);
 }
 
 test "encodeToFileByPath" {
@@ -98,11 +101,12 @@ test "encodeToFileByPath" {
     const alloc = arena.allocator();
 
     // skip test if the test image does not exist.
-    var f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
+    var src_f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
+    defer src_f.close();
 
-    const img = try Image.fromFile(alloc, &f);
+    const img = try Image.fromFile(alloc, &src_f);
     const header = qoi.HeaderInfo{
         .width = @intCast(u32, img.width),
         .height = @intCast(u32, img.height),
@@ -112,8 +116,9 @@ test "encodeToFileByPath" {
     var px_iter = qoi.ZigimgPixelIterator.init(img.iterator());
 
     _ = try qoi.encodeToFileByPath(header, &px_iter, test_out_path);
-
-    std.fs.cwd().deleteFile(test_out_path) catch |err| {
-        std.debug.print("failed to delete test output file: {!}", .{err});
-    };
+    defer {
+        std.fs.cwd().deleteFile(test_out_path) catch |err| {
+            std.debug.print("failed to delete test output file: {!}", .{err});
+        };
+    }
 }

@@ -69,6 +69,8 @@ test "decodeFromFile" {
     const f = std.fs.cwd().openFile(testcard_path, .{}) catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest else return err;
     };
+    defer f.close();
+    
     _ = try qoi.decodeFromFile(f);
 }
 
