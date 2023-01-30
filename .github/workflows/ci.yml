@@ -25,7 +25,7 @@ jobs:
         run: |
           # cf. https://github.com/agda/agda/issues/4691
           if [ "${{ runner.os }}" = "Windows" ]; then
-            C:\msys64\usr\bin\wget.exe https://qoiformat.org/qoi_test_images.zip
+            "C:/msys64/usr/bin/wget.exe" https://qoiformat.org/qoi_test_images.zip
           else
             wget https://qoiformat.org/qoi_test_images.zip
           fi
