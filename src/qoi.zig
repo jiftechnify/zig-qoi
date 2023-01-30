@@ -47,6 +47,8 @@ pub fn encodeToFile(header: HeaderInfo, px_iter: anytype, dst_file: *File) !void
 /// Use `qoi.XxxPixelIterator.init()` series constructors to get 'iterator of pixels' from an image data in various forms.
 pub fn encodeToFileByPath(header: HeaderInfo, px_iter: anytype, dst_path: []const u8) !void {
     var f = try generic_path.createFile(dst_path, .{});
+    defer f.close();
+
     try encodeToFile(header, px_iter, &f);
 }
 
@@ -158,6 +160,8 @@ pub fn decodeFromFile(src_file: File) !DecodeResult(BufFileReader) {
 /// Decodes QOI-encoded image data from the file at `src_path`.
 pub fn decodeFromFileByPath(src_path: []const u8) !DecodeResult(BufFileReader) {
     const f = try generic_path.openFile(src_path, .{});
+    defer f.close();
+
     return try decodeFromFile(f);
 }
 
