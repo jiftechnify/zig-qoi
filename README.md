@@ -1,5 +1,5 @@
 # zoi
-An [QOI](https://github.com/phoboslab/qoi) ("Quite OK Image Format") encoder/decoder implementation written in Zig.
+A [QOI](https://github.com/phoboslab/qoi) ("Quite OK Image Format") encoder/decoder implementation written in Zig.
 
 This project is mainly for the purpose of learning Zig.
 
